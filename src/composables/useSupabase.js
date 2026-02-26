@@ -130,8 +130,19 @@ export const useSupabase = () => {
           price, is_online, is_free, selectCategory, photo_files } = payload || {}
 
   const { data, error } = await supabase.functions.invoke('validate-event', {
-    body: { title, description, date: date_time_event }
-  })
+  body: {
+    title,
+    description,
+    date_time_event,
+    address,
+    organizer,
+    price,
+    is_online,
+    is_free,
+    selectCategory,
+    user_id: user.id
+  }
+})
 
   if (error) return { data: null, error }
 
