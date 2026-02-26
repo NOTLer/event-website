@@ -123,6 +123,7 @@ export const useSupabase = () => {
   }
 
   const createBusinessEvent = async (payload) => {
+  console.log('🚀 createBusinessEvent called', payload)
   const { user } = await getUser()
   if (!user?.id) return { data: null, error: new Error('Not authorized') }
 
@@ -143,6 +144,7 @@ export const useSupabase = () => {
     user_id: user.id
   }
 })
+console.log('📡 invoke result:', { data, error })
 
   if (error) return { data: null, error }
 
