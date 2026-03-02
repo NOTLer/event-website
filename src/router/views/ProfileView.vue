@@ -60,14 +60,14 @@
             </label>
 
             <label class="field field-full">
-              <span>О себе (до 200 символов)</span>
+              <span>О себе (до 1000 символов)</span>
               <textarea
-                v-model="form.description"
-                maxlength="200"
+                v-model="form.about"
+                maxlength="1000"
                 rows="3"
-                placeholder="Расскажите кратко о себе"
+                placeholder="Расскажите о себе..."
               ></textarea>
-              <small class="counter">{{ descriptionLeft }} символов осталось</small>
+              <small class="counter">{{ aboutLeft }} символов осталось</small>
             </label>
           </div>
 
@@ -160,7 +160,7 @@ export default {
       phone: '',
       email: '',
       gender: '',
-      description: ''
+      about: ''
     })
 
     const pickedAvatarFile = ref(null)
@@ -177,7 +177,7 @@ export default {
       form.phone = p?.phone ?? ''
       form.email = p?.email ?? ''
       form.gender = p?.gender ?? ''
-      form.description = p?.description ?? ''
+      form.about = p?.about ?? ''
     }
 
     const load = async () => {
@@ -263,10 +263,7 @@ export default {
           gender: form.gender || null
         }
 
-        const profileHasDescriptionField = profile.value && Object.prototype.hasOwnProperty.call(profile.value, 'description')
-        if (profileHasDescriptionField) {
-          patch.description = String(form.description || '').trim().slice(0, 200) || null
-        }
+        patch.about = String(form.about || '').trim().slice(0, 1000) || null
 
         if (avatarUrl) patch.image_path = avatarUrl
 
@@ -292,7 +289,7 @@ export default {
     }
 
 
-    const descriptionLeft = computed(() => Math.max(0, 200 - String(form.description || '').length))
+    const aboutLeft = computed(() => Math.max(0, 1000 - String(form.about || '').length))
 
     const goToMyEvents = () => {
       router.push({ name: 'my-events' })
@@ -321,7 +318,7 @@ export default {
       pickedAvatarFile,
       previewAvatarUrl,
       saveProfile,
-      descriptionLeft,
+      aboutLeft,
       goToMyEvents
     }
   }

@@ -25,7 +25,7 @@
               <span class="tag" :class="profile?.It_business ? 'biz' : 'plain'">
                 {{ profile?.It_business ? 'Business' : 'Пользователь' }}
               </span>
-              <span v-if="profile.description" class="tag soft">{{ profile.description }}</span>
+              <span v-if="profile.about" class="tag soft">{{ profile.about }}</span>
             </div>
           </div>
         </div>
@@ -47,6 +47,7 @@
           <div class="up-field" v-if="profile.birth_day">Дата рождения: {{ profile.birth_day }}</div>
           <div class="up-field" v-if="profile.phone">Телефон: {{ profile.phone }}</div>
           <div class="up-field" v-if="profile.email">Email: {{ profile.email }}</div>
+          <div class="up-field" v-if="profile.about">О себе: {{ profile.about }}</div>
         </div>
 
         <div v-else-if="activeTab === 'friends'" class="up-block">
