@@ -572,6 +572,31 @@ export const useSupabase = () => {
     return { data: out, error: null }
   }
 
+  const getMyConversations = async (limit = 250) => {
+    const { user } = await getUser()
+    if (!user?.id) return { data: [], error: new Error('Not authorized') }
+
+    const { data: memberships, error: membershipError } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', user.id)
+      .limit(limit)
+
+    if (membershipError) return { data: [], error: membershipError }
+
+    const conversationIds = [...new Set((memberships || []).map((x) => String(x?.conversation_id || '')).filter(Boolean))]
+    if (conversationIds.length === 0) return { data: [], error: null }
+
+    const { data: conversations, error: conversationsError } = await supabase
+      .from('conversations')
+      .select('id,title,created_at,updated_at')
+      .in('id', conversationIds)
+
+    if (conversationsError) return { data: [], error: conversationsError }
+
+    return { data: conversations ?? [], error: null }
+  }
+
   const createConversation = async ({ title = '', participantIds = [] } = {}) => {
     const { user } = await getUser()
     if (!user?.id) return { data: null, error: new Error('Not authorized') }
@@ -722,6 +747,7 @@ export const useSupabase = () => {
     removeFriendOrRequest,
 
     getInboxThreads,
+    getMyConversations,
     createConversation,
     addParticipantsToConversation,
     getConversation,

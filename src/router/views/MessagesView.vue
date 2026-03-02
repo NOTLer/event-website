@@ -28,9 +28,9 @@
             v-for="t in threads"
             :key="t.otherUserId"
             type="button"
-            class="thread"
-            :class="{ active: t.otherUserId === selectedOtherId, unread: t.unread }"
-            @click="openThread(t.otherUserId)"
+            class="thread" :disabled="t.isConversation"
+            :class="{ active: !t.isConversation && t.otherUserId === selectedOtherId, unread: t.unread }"
+            @click="t.isConversation ? null : openThread(t.otherUserId)"
           >
             <div class="thread-ava">
               <img v-if="t.avatar" :src="t.avatar" class="thread-ava-img" alt="avatar" @error="onAvaErr(t)" />
@@ -48,7 +48,7 @@
 
               <div class="thread-sub">
                 <div class="thread-preview">
-                  {{ threadPreview(t.lastMessage?.body || '') }}
+                  {{ t.isConversation ? 'Групповая беседа' : threadPreview(t.lastMessage?.body || '') }}
                 </div>
                 <div v-if="t.unreadCount > 0" class="thread-pill" aria-label="Непрочитанные">
                   {{ t.unreadCount > 99 ? '99+' : t.unreadCount }}
@@ -284,22 +284,36 @@
         <button class="fwd-modal-close" type="button" @click="closeCreateConversationModal" aria-label="Закрыть">✕</button>
       </div>
 
-      <div v-if="friendsLoading" class="fwd-modal-empty">Загрузка друзей...</div>
-      <div v-else-if="friendsForConversation.length === 0" class="fwd-modal-empty">Нет друзей для добавления.</div>
-
-      <div v-else class="conv-friends-list">
-        <label v-for="f in friendsForConversation" :key="`new-conv-${f.id}`" class="conv-friend-row">
-          <input v-model="selectedConversationFriends" :value="f.id" type="checkbox" />
-          <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
-          <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
-          <div class="conv-friend-name">{{ f.title }}</div>
-        </label>
+      <div class="conv-title-block">
+        <div class="conv-title-label">Название беседы</div>
+        <input
+          v-model="newConversationTitle"
+          class="chat-input"
+          type="text"
+          placeholder="Например: Поездка на конференцию"
+          :disabled="creatingConversation"
+        />
       </div>
+
+      <div v-if="!newConversationTitle.trim()" class="fwd-modal-empty">Сначала укажи название беседы.</div>
+      <template v-else>
+        <div v-if="friendsLoading" class="fwd-modal-empty">Загрузка друзей...</div>
+        <div v-else-if="friendsForConversation.length === 0" class="fwd-modal-empty">Нет друзей для добавления.</div>
+
+        <div v-else class="conv-friends-list">
+          <label v-for="f in friendsForConversation" :key="`new-conv-${f.id}`" class="conv-friend-row">
+            <input v-model="selectedConversationFriends" :value="f.id" type="checkbox" />
+            <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
+            <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+            <div class="conv-friend-name">{{ f.title }}</div>
+          </label>
+        </div>
+      </template>
 
       <button
         class="chat-send conv-create-btn"
         type="button"
-        :disabled="creatingConversation || selectedConversationFriends.length === 0"
+        :disabled="creatingConversation || !newConversationTitle.trim() || selectedConversationFriends.length === 0"
         @click="createConversationSubmit"
       >Создать беседу</button>
     </div>
@@ -413,6 +427,7 @@ export default {
       getUser,
       getPublicUserById,
       getInboxThreads,
+      getMyConversations,
       getFriendships,
       createConversation,
       getConversation,
@@ -439,6 +454,7 @@ export default {
     const creatingConversation = ref(false)
     const friendsForConversation = ref([])
     const selectedConversationFriends = ref([])
+    const newConversationTitle = ref('')
 
     const peer = ref(null)
     const messages = ref([])
@@ -788,6 +804,7 @@ export default {
     const closeCreateConversationModal = () => {
       createConversationOpen.value = false
       selectedConversationFriends.value = []
+      newConversationTitle.value = ''
     }
 
     const loadFriendsForConversation = async () => {
@@ -833,7 +850,7 @@ export default {
       if (selectedConversationFriends.value.length === 0) return
       creatingConversation.value = true
       try {
-        const { data, error } = await createConversation({ participantIds: selectedConversationFriends.value })
+        const { data, error } = await createConversation({ title: newConversationTitle.value, participantIds: selectedConversationFriends.value })
         if (error) throw error
         closeCreateConversationModal()
         await reload()
@@ -948,8 +965,25 @@ export default {
 
         const rows = (data || []).map((x) => ({
           otherUserId: x.otherUserId,
-          lastMessage: x.lastMessage
+          lastMessage: x.lastMessage,
+          isConversation: false
         }))
+
+        const { data: conversationsData, error: conversationsError } = await getMyConversations(60)
+        if (conversationsError) throw conversationsError
+
+        for (const conv of (conversationsData || [])) {
+          const title = String(conv?.title || '').trim()
+          if (!title) continue
+          rows.push({
+            otherUserId: `conversation:${conv.id}`,
+            lastMessage: null,
+            isConversation: true,
+            conversationId: String(conv.id || ''),
+            conversationTitle: title,
+            conversationCreatedAt: conv?.created_at || conv?.updated_at || ''
+          })
+        }
 
         const usersMap = await ensureThreadsUsers(rows)
         const unreadByOther = new Map()
@@ -967,6 +1001,19 @@ export default {
 
         const enriched = rows.map((r) => {
           const m = r.lastMessage || {}
+          if (r.isConversation) {
+            return {
+              otherUserId: r.otherUserId,
+              lastMessage: r.lastMessage || { body: '', created_at: r.conversationCreatedAt || '' },
+              unread: false,
+              unreadCount: 0,
+              title: r.conversationTitle || 'Беседа',
+              avatar: '',
+              isConversation: true,
+              conversationId: r.conversationId
+            }
+          }
+
           const unreadCount = Number(unreadByOther.get(String(r.otherUserId)) || 0)
           const unread = unreadCount > 0
           const u = usersMap.get(r.otherUserId)
@@ -977,11 +1024,12 @@ export default {
             unread,
             unreadCount,
             title: safeTitleFromUser(u),
-            avatar: normalizeStoragePublicUrl(u?.image_path || '')
+            avatar: normalizeStoragePublicUrl(u?.image_path || ''),
+            isConversation: false
           }
         })
 
-        threads.value = enriched
+        threads.value = enriched.sort((a, b) => new Date(b?.lastMessage?.created_at || 0) - new Date(a?.lastMessage?.created_at || 0))
         calcUnreadTotal()
 
         const qWith = String(route.query.with || '').trim()
@@ -1649,6 +1697,7 @@ export default {
       creatingConversation,
       friendsForConversation,
       selectedConversationFriends,
+      newConversationTitle,
 
       chatBodyRef,
       chatInputRef,
