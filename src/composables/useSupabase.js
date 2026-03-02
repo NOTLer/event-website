@@ -572,6 +572,41 @@ export const useSupabase = () => {
     return { data: out, error: null }
   }
 
+  const createConversation = async ({ title = '', participantIds = [] } = {}) => {
+    const { user } = await getUser()
+    if (!user?.id) return { data: null, error: new Error('Not authorized') }
+
+    const cleanIds = [...new Set((participantIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+    const allParticipants = [...new Set([user.id, ...cleanIds])]
+
+    const { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .insert([{ title: String(title || '').trim() || null, created_by: user.id }])
+      .select('*')
+      .maybeSingle()
+
+    if (convError) return { data: null, error: convError }
+    if (!conversation?.id) return { data: null, error: new Error('Conversation not created') }
+
+    const rows = allParticipants.map((userId) => ({ conversation_id: conversation.id, user_id: userId }))
+    const { error: participantsError } = await supabase.from('conversation_participants').insert(rows)
+    if (participantsError) return { data: null, error: participantsError }
+
+    return { data: conversation, error: null }
+  }
+
+  const addParticipantsToConversation = async (conversationId, userIds = []) => {
+    const cid = String(conversationId || '').trim()
+    if (!cid) return { data: [], error: new Error('No conversationId') }
+
+    const uniqueIds = [...new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+    if (uniqueIds.length === 0) return { data: [], error: null }
+
+    const rows = uniqueIds.map((userId) => ({ conversation_id: cid, user_id: userId }))
+    const { data, error } = await supabase.from('conversation_participants').insert(rows).select('*')
+    return { data: data ?? [], error }
+  }
+
   // =======================
   // Realtime: new messages
   // =======================
@@ -687,6 +722,8 @@ export const useSupabase = () => {
     removeFriendOrRequest,
 
     getInboxThreads,
+    createConversation,
+    addParticipantsToConversation,
     getConversation,
     sendMessage,
     deleteMessage,
