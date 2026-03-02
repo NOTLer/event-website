@@ -28,9 +28,9 @@
             v-for="t in threads"
             :key="t.otherUserId"
             type="button"
-            class="thread" :disabled="t.isConversation"
-            :class="{ active: !t.isConversation && t.otherUserId === selectedOtherId, unread: t.unread }"
-            @click="t.isConversation ? null : openThread(t.otherUserId)"
+            class="thread"
+            :class="{ active: t.otherUserId === selectedOtherId, unread: t.unread }"
+            @click="openThread(t.otherUserId)"
           >
             <div class="thread-ava">
               <img v-if="t.avatar" :src="t.avatar" class="thread-ava-img" alt="avatar" @error="onAvaErr(t)" />
@@ -346,6 +346,14 @@ const REPLY_SUFFIX = '__REPLY__'
 const FORWARD_PREFIX = '__FORWARD__'
 const FORWARD_SUFFIX = '__FORWARD__'
 const REACTION_OPTIONS = ['❤️', '🫡', '👌', '👍', '😡', '🥲', '😭']
+const CONVERSATION_THREAD_PREFIX = 'conversation:'
+
+const isConversationThreadId = (id) => String(id || '').startsWith(CONVERSATION_THREAD_PREFIX)
+const conversationIdFromThreadId = (id) => {
+  const raw = String(id || '').trim()
+  if (!isConversationThreadId(raw)) return ''
+  return raw.slice(CONVERSATION_THREAD_PREFIX.length)
+}
 
 const safeJsonParse = (s) => {
   try { return JSON.parse(s) } catch { return null }
@@ -578,6 +586,7 @@ export default {
 
     const peerStatusText = computed(() => {
       const base = peer?.value?.sub || ''
+      if (isConversationThreadId(selectedOtherId.value)) return base || 'групповой чат'
       const status = peerOnline.value ? 'в сети' : formatLastSeen(peerLastSeenAt.value)
       return [base, status].filter(Boolean).join(' · ')
     })
@@ -1085,15 +1094,24 @@ export default {
         const { user } = await getUser()
         if (!user?.id) return
 
+        const selectedConversationId = conversationIdFromThreadId(selectedOtherId.value)
+
         const beforeTop = chatBodyRef.value?.scrollHeight || 0
 
-        const { data, error } = await supabase
+        let query = supabase
           .from('messages')
           .select('*')
-          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedOtherId.value}),and(sender_id.eq.${selectedOtherId.value},receiver_id.eq.${user.id})`)
           .lt('created_at', oldestLoadedAt.value)
           .order('created_at', { ascending: false })
           .limit(80)
+
+        if (selectedConversationId) {
+          query = query.eq('conversation_id', selectedConversationId)
+        } else {
+          query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedOtherId.value}),and(sender_id.eq.${selectedOtherId.value},receiver_id.eq.${user.id})`)
+        }
+
+        const { data, error } = await query
 
         if (error) throw error
 
@@ -1142,13 +1160,22 @@ export default {
         if (!user?.id) return
         myId.value = user.id
 
+        const selectedConversationId = conversationIdFromThreadId(selectedOtherId.value)
+
         // загружаем последние сообщения (снизу), затем разворачиваем в хронологию
-        const { data, error } = await supabase
+        let query = supabase
           .from('messages')
           .select('*')
-          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedOtherId.value}),and(sender_id.eq.${selectedOtherId.value},receiver_id.eq.${user.id})`)
           .order('created_at', { ascending: false })
           .limit(80)
+
+        if (selectedConversationId) {
+          query = query.eq('conversation_id', selectedConversationId)
+        } else {
+          query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedOtherId.value}),and(sender_id.eq.${selectedOtherId.value},receiver_id.eq.${user.id})`)
+        }
+
+        const { data, error } = await query
 
         if (error) throw error
 
@@ -1209,12 +1236,25 @@ export default {
       // я перестаю "печатать" в прошлом чате
       await stopTyping()
 
-      await loadPeer(otherId)
-      await loadPeerPresence()
-      await startTypingPresence()
+      const conversationId = conversationIdFromThreadId(otherId)
+      if (conversationId) {
+        const title = threads.value.find((t) => t.otherUserId === otherId)?.title || 'Беседа'
+        peer.value = {
+          id: otherId,
+          title,
+          sub: 'групповая беседа',
+          avatar: ''
+        }
+      } else {
+        await loadPeer(otherId)
+        await loadPeerPresence()
+        await startTypingPresence()
+      }
       await reloadConversation()
       await jumpToLatestOnOpen()
-      await markThreadAsRead(otherId)
+      if (!conversationId) {
+        await markThreadAsRead(otherId)
+      }
     }
 
     const focusChatInput = async () => {
@@ -1334,13 +1374,28 @@ export default {
       const otherId = selectedOtherId.value
       const text = String(draft.value || '').trim()
       if (!otherId || (!text && !forwardTo.value)) return
+      const conversationId = conversationIdFromThreadId(otherId)
 
       sending.value = true
       try {
         await stopTyping()
 
         const finalBody = buildBodyWithMeta({ replyTo: replyTo.value, forwardTo: forwardTo.value, text })
-        const { data, error } = await sendMessage(otherId, finalBody)
+        let data = null
+        let error = null
+        if (conversationId) {
+          const response = await supabase
+            .from('messages')
+            .insert([{ sender_id: myId.value, receiver_id: null, conversation_id: conversationId, body: finalBody }])
+            .select('*')
+            .maybeSingle()
+          data = response.data
+          error = response.error
+        } else {
+          const response = await sendMessage(otherId, finalBody)
+          data = response.data
+          error = response.error
+        }
         if (error) throw error
 
         draft.value = ''
