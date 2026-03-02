@@ -1,14 +1,9 @@
 <template>
-  <div class="mv" @click="headMenuOpen = false">
+  <div class="mv">
     <div class="mv-left">
       <div class="mv-head">
         <div class="mv-title">Сообщения</div>
-        <div class="mv-head-actions" @click.stop>
-          <button class="mv-menu-btn" type="button" @click="toggleHeadMenu">⋯</button>
-          <div v-if="headMenuOpen" class="mv-menu-pop" @click.stop>
-            <button class="mv-menu-item" type="button" @click="openCreateConversationModal">Создать беседу</button>
-          </div>
-        </div>
+        <button class="mv-create-conversation" type="button" @click="openCreateConversationModal">+ Беседа</button>
         <button class="mv-refresh" type="button" @click="reload" :disabled="loading">⟳</button>
       </div>
 
@@ -439,7 +434,6 @@ export default {
     const threads = ref([]) // [{ otherUserId, lastMessage, unread, unreadCount, title, avatar }]
     const selectedOtherId = ref('')
     const showPeerProfile = ref(false)
-    const headMenuOpen = ref(false)
     const createConversationOpen = ref(false)
     const friendsLoading = ref(false)
     const creatingConversation = ref(false)
@@ -790,9 +784,6 @@ export default {
       pendingForwardMessage.value = null
     }
 
-    const toggleHeadMenu = () => {
-      headMenuOpen.value = !headMenuOpen.value
-    }
 
     const closeCreateConversationModal = () => {
       createConversationOpen.value = false
@@ -834,7 +825,6 @@ export default {
     }
 
     const openCreateConversationModal = async () => {
-      headMenuOpen.value = false
       createConversationOpen.value = true
       await loadFriendsForConversation()
     }
@@ -1654,7 +1644,6 @@ export default {
       replyTo,
       forwardTo,
       forwardModalOpen,
-      headMenuOpen,
       createConversationOpen,
       friendsLoading,
       creatingConversation,
@@ -1681,7 +1670,6 @@ export default {
       clearForward,
       closeForwardModal,
       pickForwardChat,
-      toggleHeadMenu,
       openCreateConversationModal,
       closeCreateConversationModal,
       createConversationSubmit,
@@ -1754,45 +1742,20 @@ export default {
   font-weight: 900;
   font-size: 16px;
 }
-.mv-head-actions {
+.mv-create-conversation {
   margin-left: auto;
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.mv-menu-btn {
-  width: 40px;
   height: 40px;
   border-radius: 14px;
-  border: 1px solid #efefef;
-  background: #fff;
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
   cursor: pointer;
-  font-size: 22px;
-  line-height: 1;
+  font-weight: 800;
+  padding: 0 14px;
 }
-.mv-menu-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 10;
-  min-width: 200px;
-  border: 1px solid #efefef;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
-  padding: 6px;
+.mv-create-conversation:hover {
+  background: #222;
 }
-.mv-menu-item {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 700;
-}
-.mv-menu-item:hover { background: #f6f8ff; }
 .mv-refresh {
   width: 40px;
   height: 40px;
