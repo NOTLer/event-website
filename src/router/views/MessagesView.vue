@@ -151,6 +151,16 @@
 
                   <div class="msg-text">{{ parseBody(m.body).text }}</div>
 
+                  <div v-if="parseBody(m.body).forward" class="msg-forward">
+                    <div class="msg-forward-top">
+                      Переслано от <span class="msg-forward-who">{{ parseBody(m.body).forward.from }}</span>
+                    </div>
+                    <div v-if="parseBody(m.body).forward.chat" class="msg-forward-chat">
+                      из чата «{{ parseBody(m.body).forward.chat }}»
+                    </div>
+                    <div class="msg-forward-text">{{ parseBody(m.body).forward.text }}</div>
+                  </div>
+
                   <div class="msg-reactions">
                     <button
                       v-for="item in getMessageReactions(m.id)"
@@ -205,6 +215,14 @@
             <button class="reply-bar-close" type="button" @click="clearReply" aria-label="Отменить ответ">✕</button>
           </div>
 
+          <div v-if="forwardTo" class="reply-bar reply-bar-forward">
+            <div class="reply-bar-left">
+              <div class="reply-bar-title">Переслать: {{ forwardTo.from }}</div>
+              <div class="reply-bar-snippet">{{ forwardTo.text }}</div>
+            </div>
+            <button class="reply-bar-close" type="button" @click="clearForward" aria-label="Отменить пересылку">✕</button>
+          </div>
+
           <div class="chat-input-row">
             <input
               ref="chatInputRef"
@@ -217,7 +235,7 @@
               @keydown.enter.prevent="send"
               :disabled="sending"
             />
-            <button class="chat-send" type="button" @click="send" :disabled="sending || !draft.trim()">Отправить</button>
+            <button class="chat-send" type="button" @click="send" :disabled="sending || (!draft.trim() && !forwardTo)">Отправить</button>
           </div>
         </div>
       </div>
@@ -229,6 +247,34 @@
     :user-id="selectedOtherId"
     @close="closePeerProfile"
   />
+
+  <div v-if="forwardModalOpen" class="fwd-modal" @click.self="closeForwardModal">
+    <div class="fwd-modal-card">
+      <div class="fwd-modal-head">
+        <div class="fwd-modal-title">Кому переслать?</div>
+        <button class="fwd-modal-close" type="button" @click="closeForwardModal" aria-label="Закрыть">✕</button>
+      </div>
+
+      <div v-if="threads.length === 0" class="fwd-modal-empty">Нет чатов для пересылки.</div>
+
+      <div v-else class="fwd-modal-list">
+        <button
+          v-for="t in threads"
+          :key="`fwd-${t.otherUserId}`"
+          type="button"
+          class="fwd-chat"
+          @click="pickForwardChat(t.otherUserId)"
+        >
+          <img v-if="t.avatar" :src="t.avatar" class="fwd-chat-ava" alt="avatar" />
+          <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+          <div class="fwd-chat-main">
+            <div class="fwd-chat-title">{{ t.title }}</div>
+            <div class="fwd-chat-sub">{{ threadPreview(t.lastMessage?.body || '') || 'Без сообщений' }}</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
   </div>
 </template>
 
@@ -254,43 +300,77 @@ const normalizeStoragePublicUrl = (url) => {
  */
 const REPLY_PREFIX = '__REPLY__'
 const REPLY_SUFFIX = '__REPLY__'
+const FORWARD_PREFIX = '__FORWARD__'
+const FORWARD_SUFFIX = '__FORWARD__'
 const REACTION_OPTIONS = ['❤️', '🫡', '👌', '👍', '😡', '🥲', '😭']
 
 const safeJsonParse = (s) => {
   try { return JSON.parse(s) } catch { return null }
 }
 
-const buildBodyWithReply = ({ replyTo, text }) => {
-  const pure = String(text || '')
-  if (!replyTo) return pure
-  const meta = {
-    id: String(replyTo.id || ''),
-    who: String(replyTo.who || 'сообщение'),
-    text: String(replyTo.text || '').slice(0, 180)
+const buildBodyWithMeta = ({ replyTo, forwardTo, text }) => {
+  let body = String(text || '')
+
+  if (forwardTo) {
+    const meta = {
+      from: String(forwardTo.from || 'Пользователь'),
+      chat: String(forwardTo.chat || ''),
+      text: String(forwardTo.text || '').trim().slice(0, 1200)
+    }
+    body = `${FORWARD_PREFIX}${JSON.stringify(meta)}${FORWARD_SUFFIX}${body}`
   }
-  return `${REPLY_PREFIX}${JSON.stringify(meta)}${REPLY_SUFFIX}${pure}`
+
+  if (replyTo) {
+    const meta = {
+      id: String(replyTo.id || ''),
+      who: String(replyTo.who || 'сообщение'),
+      text: String(replyTo.text || '').slice(0, 180)
+    }
+    body = `${REPLY_PREFIX}${JSON.stringify(meta)}${REPLY_SUFFIX}${body}`
+  }
+
+  return body
 }
 
 const parseBody = (body) => {
   const raw = String(body || '')
-  if (!raw.startsWith(REPLY_PREFIX)) {
-    return { reply: null, text: raw }
+  let cursor = raw
+  let reply = null
+  let forward = null
+
+  if (cursor.startsWith(REPLY_PREFIX)) {
+    const end = cursor.indexOf(REPLY_SUFFIX, REPLY_PREFIX.length)
+    if (end !== -1) {
+      const jsonPart = cursor.slice(REPLY_PREFIX.length, end)
+      const meta = safeJsonParse(jsonPart)
+      if (meta && typeof meta === 'object') {
+        reply = {
+          id: String(meta.id || ''),
+          who: String(meta.who || 'сообщение'),
+          text: String(meta.text || '').trim()
+        }
+      }
+      cursor = cursor.slice(end + REPLY_SUFFIX.length)
+    }
   }
-  const end = raw.indexOf(REPLY_SUFFIX, REPLY_PREFIX.length)
-  if (end === -1) return { reply: null, text: raw }
 
-  const jsonPart = raw.slice(REPLY_PREFIX.length, end)
-  const meta = safeJsonParse(jsonPart)
-  const text = raw.slice(end + REPLY_SUFFIX.length)
-
-  if (!meta || typeof meta !== 'object') return { reply: null, text: raw }
-
-  const reply = {
-    id: String(meta.id || ''),
-    who: String(meta.who || 'сообщение'),
-    text: String(meta.text || '').trim()
+  if (cursor.startsWith(FORWARD_PREFIX)) {
+    const end = cursor.indexOf(FORWARD_SUFFIX, FORWARD_PREFIX.length)
+    if (end !== -1) {
+      const jsonPart = cursor.slice(FORWARD_PREFIX.length, end)
+      const meta = safeJsonParse(jsonPart)
+      if (meta && typeof meta === 'object') {
+        forward = {
+          from: String(meta.from || 'Пользователь'),
+          chat: String(meta.chat || ''),
+          text: String(meta.text || '').trim()
+        }
+      }
+      cursor = cursor.slice(end + FORWARD_SUFFIX.length)
+    }
   }
-  return { reply, text }
+
+  return { reply, forward, text: cursor }
 }
 
 export default {
@@ -333,6 +413,9 @@ export default {
     const peerLastSeenAt = ref('')
 
     const replyTo = ref(null) // { id, who, text }
+    const forwardTo = ref(null) // { from, chat, text }
+    const forwardModalOpen = ref(false)
+    const pendingForwardMessage = ref(null)
     const chatBodyRef = ref(null)
     const chatInputRef = ref(null)
     const showScrollDown = ref(false)
@@ -653,16 +736,47 @@ export default {
       if (!ok) alert('Не удалось скопировать текст')
     }
 
+    const messageAuthorForForward = (m) => {
+      if (!m) return 'Пользователь'
+      return String(m.sender_id || '') === myId.value
+        ? 'Вы'
+        : String(peer.value?.title || 'Пользователь')
+    }
+
+    const closeForwardModal = () => {
+      forwardModalOpen.value = false
+      pendingForwardMessage.value = null
+    }
+
     const forwardMessageFromMenu = async (m) => {
-      const text = String(parseBody(m?.body).text || '').trim()
-      if (!text) {
+      const parsed = parseBody(m?.body)
+      const pureText = String(parsed?.text || '').trim()
+      if (!pureText) {
         messageMenuId.value = ''
         return
       }
-      draft.value = text
+
+      pendingForwardMessage.value = {
+        from: messageAuthorForForward(m),
+        chat: String(peer.value?.title || 'Чат'),
+        text: pureText.slice(0, 1200)
+      }
+      forwardModalOpen.value = true
       messageMenuId.value = ''
-      await nextTick()
-      chatInputRef.value?.focus?.()
+    }
+
+    const pickForwardChat = async (otherId) => {
+      const payload = pendingForwardMessage.value
+      closeForwardModal()
+      if (!otherId || !payload) return
+
+      await openThread(otherId)
+      forwardTo.value = payload
+      await focusChatInput()
+    }
+
+    const clearForward = () => {
+      forwardTo.value = null
     }
 
     const deleteFromMenu = async (m) => {
@@ -942,6 +1056,7 @@ export default {
       router.replace({ name: 'messages', query: { with: otherId } })
 
       replyTo.value = null
+      forwardTo.value = null
       peerTyping.value = false
       peerLastSeenAt.value = ''
       peerOnline.value = false
@@ -1073,18 +1188,19 @@ export default {
     const send = async () => {
       const otherId = selectedOtherId.value
       const text = String(draft.value || '').trim()
-      if (!otherId || !text) return
+      if (!otherId || (!text && !forwardTo.value)) return
 
       sending.value = true
       try {
         await stopTyping()
 
-        const finalBody = buildBodyWithReply({ replyTo: replyTo.value, text })
+        const finalBody = buildBodyWithMeta({ replyTo: replyTo.value, forwardTo: forwardTo.value, text })
         const { data, error } = await sendMessage(otherId, finalBody)
         if (error) throw error
 
         draft.value = ''
         replyTo.value = null
+        forwardTo.value = null
 
         if (data) {
           const appended = appendMessageUnique(data)
@@ -1354,6 +1470,7 @@ export default {
       convHasMore.value = true
       showScrollDown.value = false
       replyTo.value = null
+      forwardTo.value = null
       peerTyping.value = false
       showPeerProfile.value = false
       stopTypingPresence()
@@ -1386,6 +1503,7 @@ export default {
           convHasMore.value = true
           showScrollDown.value = false
           replyTo.value = null
+          forwardTo.value = null
           peerTyping.value = false
           showPeerProfile.value = false
           stopTypingPresence()
@@ -1395,6 +1513,7 @@ export default {
         await stopTyping()
         selectedOtherId.value = nextId
         replyTo.value = null
+        forwardTo.value = null
         peerTyping.value = false
         showPeerProfile.value = false
         peerLastSeenAt.value = ''
@@ -1426,6 +1545,8 @@ export default {
       draft,
 
       replyTo,
+      forwardTo,
+      forwardModalOpen,
 
       chatBodyRef,
       chatInputRef,
@@ -1444,6 +1565,9 @@ export default {
 
       setReply,
       clearReply,
+      clearForward,
+      closeForwardModal,
+      pickForwardChat,
       removeMessage,
       getMessageReactions,
       myReactionByMessage,
@@ -2155,6 +2279,89 @@ export default {
   opacity: 0.8;
 }
 
+
+.msg-forward {
+  margin-top: 8px;
+  border: 1px solid rgba(42, 91, 255, 0.25);
+  background: rgba(42, 91, 255, 0.06);
+  border-radius: 12px;
+  padding: 8px;
+}
+.msg-forward-top {
+  font-size: 12px;
+  font-weight: 900;
+}
+.msg-forward-who {
+  color: #2a5bff;
+}
+.msg-forward-chat {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+.msg-forward-text {
+  margin-top: 4px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reply-bar-forward {
+  border-color: rgba(42, 91, 255, 0.3);
+  background: rgba(42, 91, 255, 0.06);
+}
+
+.fwd-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0,0,0,0.35);
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+.fwd-modal-card {
+  width: min(520px, 100%);
+  max-height: min(82vh, 720px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #efefef;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.22);
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.fwd-modal-head {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fwd-modal-title { font-size: 16px; font-weight: 950; }
+.fwd-modal-close {
+  width: 34px; height: 34px; border-radius: 12px; border: 1px solid #efefef; background: #fff; cursor: pointer;
+}
+.fwd-modal-empty { padding: 16px; opacity: 0.75; }
+.fwd-modal-list { padding: 10px; overflow: auto; display: grid; gap: 8px; }
+.fwd-chat {
+  border: 1px solid #efefef;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.fwd-chat:hover { border-color: #dfe6ff; background: #f8faff; }
+.fwd-chat-ava { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; background: #f1f1f1; }
+.fwd-chat-ava-ph { display: grid; place-items: center; }
+.fwd-chat-title { font-size: 14px; font-weight: 900; }
+.fwd-chat-sub { font-size: 12px; opacity: 0.72; }
+
 @media (max-width: 980px) {
   .mv {
     grid-template-columns: 1fr;
@@ -2186,3 +2393,4 @@ export default {
 
 }
 </style>
+
