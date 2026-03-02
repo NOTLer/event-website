@@ -969,10 +969,12 @@ export default {
           isConversation: false
         }))
 
-        const { data: conversationsData } = await getMyConversations(60)
+        const { data: conversationsData, error: conversationsError } = await getMyConversations(60)
+        if (conversationsError) throw conversationsError
 
         for (const conv of (conversationsData || [])) {
           const title = String(conv?.title || '').trim()
+          if (!title) continue
           rows.push({
             otherUserId: `conversation:${conv.id}`,
             lastMessage: null,
@@ -1005,7 +1007,7 @@ export default {
               lastMessage: r.lastMessage || { body: '', created_at: r.conversationCreatedAt || '' },
               unread: false,
               unreadCount: 0,
-              title: r.conversationTitle || 'Беседа без названия',
+              title: r.conversationTitle || 'Беседа',
               avatar: '',
               isConversation: true,
               conversationId: r.conversationId

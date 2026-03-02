@@ -576,53 +576,26 @@ export const useSupabase = () => {
     const { user } = await getUser()
     if (!user?.id) return { data: [], error: new Error('Not authorized') }
 
-    const { data: memberships, error: membershipsError } = await supabase
+    const { data: memberships, error: membershipError } = await supabase
       .from('conversation_participants')
-      .select('conversation_id,joined_at')
+      .select('conversation_id')
       .eq('user_id', user.id)
-      .order('joined_at', { ascending: false })
       .limit(limit)
 
-    if (membershipsError) return { data: [], error: membershipsError }
+    if (membershipError) return { data: [], error: membershipError }
 
     const conversationIds = [...new Set((memberships || []).map((x) => String(x?.conversation_id || '')).filter(Boolean))]
     if (conversationIds.length === 0) return { data: [], error: null }
-
-    const fallbackById = new Map()
-    for (const row of (memberships || [])) {
-      const id = String(row?.conversation_id || '')
-      if (!id || fallbackById.has(id)) continue
-      fallbackById.set(id, {
-        id,
-        title: '',
-        created_at: row?.joined_at || null,
-        updated_at: row?.joined_at || null
-      })
-    }
 
     const { data: conversations, error: conversationsError } = await supabase
       .from('conversations')
       .select('id,title,created_at,updated_at')
       .in('id', conversationIds)
 
-    if (conversationsError) {
-      return { data: Array.from(fallbackById.values()), error: null }
-    }
+    if (conversationsError) return { data: [], error: conversationsError }
 
-    for (const conv of (conversations || [])) {
-      const id = String(conv?.id || '')
-      if (!id) continue
-      fallbackById.set(id, {
-        id,
-        title: String(conv?.title || '').trim(),
-        created_at: conv?.created_at || fallbackById.get(id)?.created_at || null,
-        updated_at: conv?.updated_at || fallbackById.get(id)?.updated_at || null
-      })
-    }
-
-    return { data: Array.from(fallbackById.values()), error: null }
+    return { data: conversations ?? [], error: null }
   }
-
 
   const createConversation = async ({ title = '', participantIds = [] } = {}) => {
     const { user } = await getUser()
