@@ -343,6 +343,7 @@ export default {
     // ✅ typing
     const peerTyping = ref(false)
     let typingSelfTimer = null
+    let typingSelfStopTimer = null
     let typingPeerTimer = null
     let typingPresenceTimer = null
     let peerStatusTickTimer = null
@@ -1023,20 +1024,26 @@ export default {
     }
 
     const onDraftInput = async () => {
-      // отправляем "печатает" сразу и сбрасываем через таймер
+      // отправляем typing только после паузы в наборе (debounce)
       if (!selectedOtherId.value) return
 
       if (typingSelfTimer) clearTimeout(typingSelfTimer)
-      await setTyping(true)
       typingSelfTimer = setTimeout(async () => {
-        await setTyping(false)
-      }, 1200)
+        await setTyping(true)
+
+        if (typingSelfStopTimer) clearTimeout(typingSelfStopTimer)
+        typingSelfStopTimer = setTimeout(async () => {
+          await setTyping(false)
+        }, 1200)
+      }, 500)
     }
 
     const stopTyping = async () => {
       try {
         if (typingSelfTimer) clearTimeout(typingSelfTimer)
         typingSelfTimer = null
+        if (typingSelfStopTimer) clearTimeout(typingSelfStopTimer)
+        typingSelfStopTimer = null
         await setTyping(false)
       } catch {
         // ignore
