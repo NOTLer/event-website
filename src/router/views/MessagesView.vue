@@ -982,15 +982,17 @@ export default {
         if (conversationsError) throw conversationsError
 
         for (const conv of (conversationsData || [])) {
-          const title = String(conv?.title || '').trim()
-          if (!title) continue
+          const convId = String(conv?.id || '').trim()
+          if (!convId) continue
+          const title = String(conv?.title || '').trim() || `Беседа #${convId}`
+          const freshAt = conv?.updated_at || conv?.created_at || ''
           rows.push({
-            otherUserId: `conversation:${conv.id}`,
-            lastMessage: null,
+            otherUserId: `conversation:${convId}`,
+            lastMessage: { body: '', created_at: freshAt },
             isConversation: true,
-            conversationId: String(conv.id || ''),
+            conversationId: convId,
             conversationTitle: title,
-            conversationCreatedAt: conv?.created_at || conv?.updated_at || ''
+            conversationFreshAt: freshAt
           })
         }
 
@@ -1013,7 +1015,7 @@ export default {
           if (r.isConversation) {
             return {
               otherUserId: r.otherUserId,
-              lastMessage: r.lastMessage || { body: '', created_at: r.conversationCreatedAt || '' },
+              lastMessage: r.lastMessage || { body: '', created_at: r.conversationFreshAt || '' },
               unread: false,
               unreadCount: 0,
               title: r.conversationTitle || 'Беседа',

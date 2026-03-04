@@ -634,13 +634,10 @@ export const useSupabase = () => {
     const { user } = await getUser()
     if (!user?.id) return { data: [], error: new Error('Not authorized') }
 
-    const cid = String(conversationId || '').trim()
-    if (!cid) return { data: [], error: new Error('No conversationId') }
-
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .eq('conversation_id', cid)
+      .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
       .limit(limit)
 
@@ -652,15 +649,12 @@ export const useSupabase = () => {
     const { user } = await getUser()
     if (!user?.id) return { data: null, error: new Error('Not authorized') }
 
-    const cid = String(conversationId || '').trim()
-    if (!cid) return { data: null, error: new Error('No conversationId') }
-
     const text = String(body || '').trim()
     if (!text) return { data: null, error: new Error('Empty message') }
 
     const { data, error } = await supabase
       .from('messages')
-      .insert([{ conversation_id: cid, sender_id: user.id, receiver_id: null, body: text }])
+      .insert([{ conversation_id: conversationId, sender_id: user.id, body: text }])
       .select('*')
       .maybeSingle()
 
