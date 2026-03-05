@@ -13,7 +13,7 @@
         <button class="mv-empty-btn" type="button" @click="openProfileLogin">Открыть вход</button>
       </div>
 
-      <div v-else>
+      <div v-else class="mv-left-body">
         <div v-if="loading" class="mv-skel">
           <div class="skel-row" v-for="i in 6" :key="i"></div>
         </div>
@@ -1004,7 +1004,7 @@ export default {
           isConversation: false
         }))
 
-        const { data: conversationsData, error: conversationsError } = await getMyConversations(60)
+        const { data: conversationsData, error: conversationsError } = await getMyConversations(500)
         if (conversationsError) throw conversationsError
 
         for (const conv of (conversationsData || [])) {
@@ -1506,6 +1506,55 @@ export default {
       const uid = myId.value
       if (!uid) return
 
+      if (m.conversation_id) {
+        const conversationId = String(m.conversation_id || '').trim()
+        if (!conversationId) return
+
+        const threadId = `${CONVERSATION_THREAD_PREFIX}${conversationId}`
+        const idx = threads.value.findIndex((t) => t.otherUserId === threadId)
+        let t = idx !== -1 ? threads.value[idx] : null
+
+        if (!t) {
+          const { data: conv } = await getConversation(conversationId)
+          t = {
+            otherUserId: threadId,
+            lastMessage: m,
+            unread: false,
+            unreadCount: 0,
+            title: String(conv?.title || '').trim() || 'Беседа',
+            avatar: '',
+            isConversation: true,
+            conversationId
+          }
+        }
+
+        const nextT = {
+          ...t,
+          lastMessage: m,
+          unread: false,
+          unreadCount: 0,
+          isConversation: true,
+          conversationId
+        }
+
+        const copy = [...threads.value]
+        if (idx !== -1) copy.splice(idx, 1)
+        threads.value = [nextT, ...copy]
+
+        if (selectedOtherId.value === threadId) {
+          const appended = appendMessageUnique(m)
+          if (appended) {
+            if (isAtBottom()) {
+              await scrollBottom()
+            } else {
+              showScrollDown.value = true
+            }
+            await refreshReactionsForCurrentConversation()
+          }
+        }
+        return
+      }
+
       const otherId = m.sender_id === uid ? m.receiver_id : m.sender_id
       if (!otherId) return
 
@@ -1663,12 +1712,24 @@ export default {
       }, 15000)
 
       if (selectedOtherId.value) {
-        await loadPeer(selectedOtherId.value)
-        await loadPeerPresence()
-        await startTypingPresence()
+        if (isConversationThreadId(selectedOtherId.value)) {
+          const title = threads.value.find((t) => t.otherUserId === selectedOtherId.value)?.title || 'Беседа'
+          peer.value = {
+            id: selectedOtherId.value,
+            title,
+            sub: 'групповая беседа',
+            avatar: ''
+          }
+        } else {
+          await loadPeer(selectedOtherId.value)
+          await loadPeerPresence()
+          await startTypingPresence()
+        }
         await reloadConversation()
         await jumpToLatestOnOpen()
-        await markThreadAsRead(selectedOtherId.value)
+        if (!isConversationThreadId(selectedOtherId.value)) {
+          await markThreadAsRead(selectedOtherId.value)
+        }
       }
     })
 
@@ -1932,6 +1993,13 @@ export default {
   display: grid;
   gap: 10px;
 }
+
+.mv-left-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .skel-row {
   height: 64px;
   border-radius: 16px;
@@ -1945,6 +2013,10 @@ export default {
 }
 
 .mv-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px;
   display: grid;
   gap: 8px;
