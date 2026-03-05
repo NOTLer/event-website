@@ -3803,16 +3803,17 @@ export default {
 }
 .fwd-modal-card {
   width: min(520px, 100%);
-  max-height: min(82vh, 720px);
+  max-height: min(90vh, 780px);
   background: #fff;
   border-radius: 16px;
   border: 1px solid #efefef;
   box-shadow: 0 18px 48px rgba(0,0,0,0.22);
   display: grid;
   grid-template-rows: auto 1fr;
+  overflow: hidden;
 }
 .fwd-modal-head {
-  padding: 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid #f0f0f0;
   display: flex;
   align-items: center;
@@ -3824,7 +3825,7 @@ export default {
   width: 34px; height: 34px; border-radius: 12px; border: 1px solid #efefef; background: #fff; cursor: pointer;
 }
 .fwd-modal-empty { padding: 16px; opacity: 0.75; }
-.fwd-modal-list { padding: 10px; overflow: auto; display: grid; gap: 8px; }
+.fwd-modal-list { padding: 12px 14px 14px; overflow: auto; display: grid; gap: 8px; }
 .fwd-chat {
   border: 1px solid #efefef;
   border-radius: 12px;
@@ -3921,12 +3922,35 @@ export default {
     place-items: center;
   }
 
+  .chat-body {
+    padding: 10px 6px 10px 10px;
+  }
+
+  .msg {
+    min-width: 0;
+  }
+
+  .msg-bubble {
+    max-width: calc(100% - 3px);
+    min-width: 0;
+    margin-right: 3px;
+  }
+
+  .msg-text,
+  .msg-reply-text,
+  .msg-forward-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
 }
 
 
 .conv-settings-card {
   width: min(920px, 100%);
-  max-height: min(90vh, 860px);
+  max-height: min(94vh, 920px);
+  overflow-y: auto;
 }
 
 .conv-settings-top {
