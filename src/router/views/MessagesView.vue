@@ -34,7 +34,7 @@
           >
             <div class="thread-ava">
               <img v-if="t.avatar" :src="t.avatar" class="thread-ava-img" alt="avatar" @error="onAvaErr(t)" />
-              <div v-else class="thread-ava-ph">👤</div>
+              <div v-else class="thread-ava-ph">{{ avatarLetter(t.title) }}</div>
               <div v-if="t.unread" class="thread-dot" aria-label="Непрочитано"></div>
             </div>
 
@@ -82,13 +82,14 @@
                 alt="avatar"
                 @error="onPeerAvaErr"
               />
-              <div v-else class="chat-peer-ava-ph">👤</div>
+              <div v-else class="chat-peer-ava-ph">{{ avatarLetter(peer?.title) }}</div>
             </div>
 
             <div class="chat-peer-info" @click="openPeerProfile" role="button" tabindex="0">
               <div class="chat-peer-name">{{ peer?.title || 'Пользователь' }}</div>
               <div class="chat-peer-sub">
                 {{ peerStatusText }}
+                <span v-if="isConversationThreadId(selectedOtherId) && conversationMembersCount > 0" class="chat-peer-members"> · {{ conversationMembersCount }} участников</span>
                 <span v-if="peerTyping" class="typing-pill" aria-label="Печатает">печатает…</span>
               </div>
             </div>
@@ -119,8 +120,8 @@
               >
                 <div v-if="m._kind !== 'system_event'" class="msg-side">
                   <div v-if="showAvatarForMessage(m, messages, msgIndex)" class="msg-avatar-wrap">
-                    <img v-if="senderAvatar(m.sender_id)" :src="senderAvatar(m.sender_id)" class="msg-avatar" alt="avatar" />
-                    <div v-else class="msg-avatar-ph">👤</div>
+                    <img v-if="senderAvatar(m.sender_id)" :src="senderAvatar(m.sender_id)" class="msg-avatar" alt="avatar" @error="onSenderAvaErr(m.sender_id)" />
+                    <div v-else class="msg-avatar-ph">{{ avatarLetter(senderTitle(m.sender_id)) }}</div>
                   </div>
                   <div v-else class="msg-avatar-spacer"></div>
                 </div>
@@ -274,7 +275,11 @@
 
           <div class="chat-input-row">
             <div class="attach-wrap">
-              <button class="attach-btn" type="button" @click="toggleAttachMenu" :disabled="sending" aria-label="Прикрепить">📎</button>
+              <button class="attach-btn" type="button" @click="toggleAttachMenu" :disabled="sending" aria-label="Прикрепить">
+                <svg class="attach-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M16.5 6.5L8.41 14.59a3 3 0 004.24 4.24l8.09-8.09a5 5 0 10-7.07-7.07L5.58 11.76a7 7 0 109.9 9.9l7.06-7.06" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
 
               <div v-if="attachMenuOpen" class="attach-menu" @click.stop>
                 <button class="attach-menu-item" type="button" @click="triggerAttachmentPick('file')">📄 Файл</button>
@@ -331,8 +336,8 @@
           class="fwd-chat"
           @click="pickForwardChat(t.otherUserId)"
         >
-          <img v-if="t.avatar" :src="t.avatar" class="fwd-chat-ava" alt="avatar" />
-          <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+          <img v-if="t.avatar" :src="t.avatar" class="fwd-chat-ava" alt="avatar" @error="onAvaErr(t)" />
+          <div v-else class="fwd-chat-ava fwd-chat-ava-ph">{{ avatarLetter(t.title) }}</div>
           <div class="fwd-chat-main">
             <div class="fwd-chat-title">{{ t.title }}</div>
             <div class="fwd-chat-sub">{{ threadPreview(t.lastMessage?.body || '') || 'Без сообщений' }}</div>
@@ -368,8 +373,8 @@
         <div v-else class="conv-friends-list">
           <label v-for="f in friendsForConversation" :key="`new-conv-${f.id}`" class="conv-friend-row">
             <input v-model="selectedConversationFriends" :value="f.id" type="checkbox" />
-            <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
-            <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+            <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" @error="f.avatar = ''" />
+            <div v-else class="fwd-chat-ava fwd-chat-ava-ph">{{ avatarLetter(f.title) }}</div>
             <div class="conv-friend-name">{{ f.title }}</div>
           </label>
         </div>
@@ -424,8 +429,8 @@
           <div class="conv-members-list">
             <div v-for="item in conversationParticipantsFiltered" :key="`member-${item.user_id}`" class="conv-member-row">
               <div class="conv-member-main">
-                <img v-if="item.avatar" :src="item.avatar" class="fwd-chat-ava" alt="avatar" />
-                <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+                <img v-if="item.avatar" :src="item.avatar" class="fwd-chat-ava" alt="avatar" @error="item.avatar = ''" />
+                <div v-else class="fwd-chat-ava fwd-chat-ava-ph">{{ avatarLetter(item.title) }}</div>
                 <div>
                   <div class="conv-friend-name">{{ item.title }}</div>
                   <div class="conv-member-sub">{{ item.username ? `@${item.username}` : 'без username' }}</div>
@@ -460,8 +465,8 @@
               <label v-for="f in friendsForAddFiltered" :key="`conv-add-${f.id}`" class="conv-friend-row conv-friend-row-pick">
                 <span class="conv-radio" :class="{ active: selectedParticipantsToAdd.includes(f.id) }"></span>
                 <input v-model="selectedParticipantsToAdd" :value="f.id" type="checkbox" />
-                <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
-                <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+                <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" @error="f.avatar = ''" />
+                <div v-else class="fwd-chat-ava fwd-chat-ava-ph">{{ avatarLetter(f.title) }}</div>
                 <div class="conv-friend-name">{{ f.title }}</div>
               </label>
             </div>
@@ -765,6 +770,7 @@ export default {
     const conversationSettingsOpen = ref(false)
     const conversationSettingsLoading = ref(false)
     const conversationParticipants = ref([])
+    const conversationMembersCount = ref(0)
     const conversationParticipantsSearch = ref('')
     const conversationTitleDraft = ref('')
     const conversationAvatarPreview = ref('')
@@ -1142,6 +1148,7 @@ export default {
         }))
 
         conversationParticipants.value = users
+        conversationMembersCount.value = users.length
         await loadFriendsForConversation()
       } catch (e) {
         showFlash(String(e?.message || 'Не удалось открыть настройки беседы'), 'error', 4200)
@@ -1153,6 +1160,7 @@ export default {
     const closeConversationSettings = () => {
       conversationSettingsOpen.value = false
       conversationAvatarCropOpen.value = false
+      conversationMembersCount.value = 0
       pendingConversationAvatarFile.value = null
       showAddParticipantsPanel.value = false
       showRolePermissionsPanel.value = false
@@ -1279,6 +1287,12 @@ export default {
       const status = peerOnline.value ? 'в сети' : formatLastSeen(peerLastSeenAt.value)
       return [base, status].filter(Boolean).join(' · ')
     })
+
+    const avatarLetter = (value) => {
+      const text = String(value || '').trim()
+      if (!text) return '👤'
+      return text.charAt(0).toUpperCase()
+    }
 
     const refreshPeerOnlineByTime = () => {
       if (!peerLastSeenAt.value) {
@@ -1898,6 +1912,8 @@ export default {
           if (isConversationThreadId(qWith)) {
             const thread = threads.value.find((t) => t.otherUserId === qWith)
             peer.value = { id: qWith, title: thread?.title || 'Беседа', sub: 'групповой чат', avatar: thread?.avatar || '' }
+            const { data: participants } = await getConversationParticipants(conversationIdFromThreadId(qWith))
+            conversationMembersCount.value = Array.isArray(participants) ? participants.length : 0
           } else {
             await loadPeer(qWith)
             await markThreadAsRead(qWith)
@@ -2138,7 +2154,10 @@ export default {
         if (conversationAvatarPreview.value) {
           peer.value = { ...peer.value, avatar: conversationAvatarPreview.value }
         }
+        const { data: participants } = await getConversationParticipants(conversationId)
+        conversationMembersCount.value = Array.isArray(participants) ? participants.length : 0
       } else {
+        conversationMembersCount.value = 0
         await loadPeer(otherId)
         await loadPeerPresence()
         await startTypingPresence()
@@ -2380,6 +2399,13 @@ export default {
     const onPeerAvaErr = () => {
       if (!peer.value) return
       peer.value = { ...peer.value, avatar: '' }
+    }
+
+    const onSenderAvaErr = (userId) => {
+      const uid = String(userId || '').trim()
+      if (!uid) return
+      if (!senderProfiles.value[uid]) return
+      senderProfiles.value = { ...senderProfiles.value, [uid]: { ...senderProfiles.value[uid], avatar: '' } }
     }
 
     const handleRealtimeInsert = async (m) => {
@@ -2849,6 +2875,7 @@ export default {
       conversationSettingsOpen,
       conversationSettingsLoading,
       conversationParticipants,
+      conversationMembersCount,
       conversationParticipantsSearch,
       conversationParticipantsFiltered,
       conversationTitleDraft,
@@ -2928,6 +2955,7 @@ export default {
       setMessageReaction,
       senderTitle,
       senderAvatar,
+      avatarLetter,
       showAvatarForMessage,
       showSenderName,
 
@@ -2940,6 +2968,7 @@ export default {
 
       onAvaErr,
       onPeerAvaErr,
+      onSenderAvaErr,
 
       // typing
       peerTyping,
@@ -3276,6 +3305,10 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.chat-peer-members {
+  opacity: 0.9;
+}
+
 .chat-peer-sub {
   font-size: 12px;
   opacity: 0.6;
@@ -3779,7 +3812,14 @@ export default {
   border: 1px solid #efefef;
   background: #fff;
   cursor: pointer;
-  font-size: 20px;
+  display: grid;
+  place-items: center;
+  color: #1f1f1f;
+}
+
+.attach-btn-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .attach-menu {
@@ -3916,10 +3956,10 @@ export default {
   background: rgba(0,0,0,0.35);
   display: grid;
   place-items: center;
-  padding: 14px;
+  padding: 14px 5px;
 }
 .fwd-modal-card {
-  width: min(520px, 100%);
+  width: min(520px, calc(100% - 10px));
   max-height: min(90vh, 780px);
   background: #fff;
   border-radius: 16px;
