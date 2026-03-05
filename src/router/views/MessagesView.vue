@@ -486,6 +486,8 @@
     </div>
   </div>
 
+  <div v-if="flashMessage" class="mv-flash" :class="`mv-flash-${flashTone}`">{{ flashMessage }}</div>
+
   <AvatarCropModal
     v-if="conversationAvatarCropOpen && pendingConversationAvatarFile"
     :file="pendingConversationAvatarFile"
@@ -768,6 +770,10 @@ export default {
     let typingChannel = null
     const typingFeatureEnabled = ref(true)
 
+    const flashMessage = ref('')
+    const flashTone = ref('info')
+    let flashTimer = null
+
     let rtChannel = null
     let reactionsChannel = null
     let systemEventsChannel = null
@@ -932,11 +938,22 @@ export default {
       try { event.target.value = '' } catch {}
     }
 
+    const showFlash = (text, tone = 'info', timeout = 2600) => {
+      flashMessage.value = String(text || '').trim()
+      flashTone.value = String(tone || 'info')
+      if (flashTimer) clearTimeout(flashTimer)
+      if (!flashMessage.value) return
+      flashTimer = setTimeout(() => {
+        flashMessage.value = ''
+      }, Number(timeout) || 2600)
+    }
+
     const copyConversationJoinLink = async () => {
       if (!selectedConversationId.value) return
       const href = `${window.location.origin}/messages?join=${encodeURIComponent(selectedConversationId.value)}`
       const ok = await copyText(href)
-      alert(ok ? 'Ссылка-приглашение скопирована' : href)
+      if (ok) showFlash('Ссылка-приглашение скопирована', 'success')
+      else showFlash(`Не удалось скопировать. Ссылка: ${href}`, 'error', 5000)
     }
 
     const onConversationAvatarCropped = (file) => {
@@ -959,7 +976,7 @@ export default {
         if (error) throw error
         conversationParticipants.value = conversationParticipants.value.map((row) => row.user_id === participant.user_id ? { ...row, role: data?.role || nextRole } : row)
       } catch (e) {
-        alert(String(e?.message || 'Не удалось изменить роль'))
+        showFlash(String(e?.message || 'Не удалось изменить роль'), 'error', 4200)
       } finally {
         roleSaving.value = false
       }
@@ -987,11 +1004,6 @@ export default {
       if (peer.value && isConversationThreadId(peer.value.id)) {
         peer.value = { ...peer.value, avatar: conversationAvatarPreview.value || '' }
       }
-      try {
-        localStorage.setItem(localConversationStorageKey('avatar'), conversationAvatarPreview.value || '')
-      } catch {
-        // ignore
-      }
     }
 
     const copyConversationTitleToThread = (title) => {
@@ -1007,17 +1019,6 @@ export default {
       }
     }
 
-    const copyConversationAvatarFromStorage = () => {
-      if (!selectedConversationId.value) return
-      try {
-        const avatar = localStorage.getItem(localConversationStorageKey('avatar')) || ''
-        if (!avatar) return
-        conversationAvatarPreview.value = avatar
-      } catch {
-        // ignore
-      }
-    }
-
     const openConversationSettings = async () => {
       if (!selectedConversationId.value) return
       conversationSettingsLoading.value = true
@@ -1030,7 +1031,6 @@ export default {
       try {
         const currentTitle = String(peer.value?.title || threads.value.find((t) => t.otherUserId === selectedOtherId.value)?.title || 'Беседа').trim()
         conversationTitleDraft.value = currentTitle
-        copyConversationAvatarFromStorage()
         loadRolePermissions()
 
         const { data: participants, error } = await getConversationParticipants(selectedConversationId.value)
@@ -1049,7 +1049,7 @@ export default {
         conversationParticipants.value = users
         await loadFriendsForConversation()
       } catch (e) {
-        alert(String(e?.message || 'Не удалось открыть настройки беседы'))
+        showFlash(String(e?.message || 'Не удалось открыть настройки беседы'), 'error', 4200)
       } finally {
         conversationSettingsLoading.value = false
       }
@@ -1070,7 +1070,7 @@ export default {
         if (error) throw error
         await openConversationSettings()
       } catch (e) {
-        alert(String(e?.message || 'Не удалось добавить участников'))
+        showFlash(String(e?.message || 'Не удалось добавить участников'), 'error', 4200)
       }
     }
 
@@ -1085,7 +1085,7 @@ export default {
         copyConversationAvatarToThread()
         conversationSettingsOpen.value = false
       } catch (e) {
-        alert(String(e?.message || 'Не удалось сохранить настройки беседы'))
+        showFlash(String(e?.message || 'Не удалось сохранить настройки беседы'), 'error', 4200)
       } finally {
         conversationSaveLoading.value = false
       }
@@ -1118,7 +1118,7 @@ export default {
         await closeThread()
         await reload()
       } catch (e) {
-        alert(String(e?.message || (isConversationOwner.value ? 'Не удалось удалить беседу' : 'Не удалось выйти из беседы')))
+        showFlash(String(e?.message || (isConversationOwner.value ? 'Не удалось удалить беседу' : 'Не удалось выйти из беседы')), 'error', 4200)
       } finally {
         conversationActionLoading.value = false
       }
@@ -1388,7 +1388,7 @@ export default {
           dataUrl
         }
       } catch (e) {
-        alert('Не удалось добавить файл')
+        showFlash('Не удалось добавить файл', 'error')
       }
     }
 
@@ -1414,7 +1414,7 @@ export default {
       const text = String(parseBody(m?.body).text || '').trim()
       const ok = await copyText(text)
       messageMenuId.value = ''
-      if (!ok) alert('Не удалось скопировать текст')
+      if (!ok) showFlash('Не удалось скопировать текст', 'error')
     }
 
     const messageAuthorForForward = (m) => {
@@ -1495,7 +1495,7 @@ export default {
             unread: false,
             unreadCount: 0,
             title,
-            avatar: '',
+            avatar: String(existing.avatar || '').trim(),
             isConversation: true,
             conversationId
           }
@@ -1509,9 +1509,9 @@ export default {
 
         closeCreateConversationModal()
         await reload()
-        if (data?.id) alert('Беседа создана')
+        if (data?.id) showFlash('Беседа создана', 'success')
       } catch (e) {
-        alert(String(e?.message || 'Не удалось создать беседу'))
+        showFlash(String(e?.message || 'Не удалось создать беседу'), 'error', 4200)
       } finally {
         creatingConversation.value = false
       }
@@ -1638,7 +1638,8 @@ export default {
             isConversation: true,
             conversationId: convId,
             conversationTitle: title,
-            conversationFreshAt: freshAt
+            conversationFreshAt: freshAt,
+            conversationAvatar: String(conv?.avatar || '').trim()
           })
         }
 
@@ -1665,7 +1666,7 @@ export default {
               unread: false,
               unreadCount: 0,
               title: r.conversationTitle || 'Беседа',
-              avatar: '',
+              avatar: String(r.conversationAvatar || '').trim(),
               isConversation: true,
               conversationId: r.conversationId
             }
@@ -1697,7 +1698,7 @@ export default {
             unread: false,
             unreadCount: 0,
             title: String(existing.title || '').trim() || 'Беседа',
-            avatar: '',
+            avatar: String(existing.avatar || '').trim(),
             isConversation: true,
             conversationId: String(existing.conversationId || conversationIdFromThreadId(otherUserId) || '').trim()
           })
@@ -1942,7 +1943,6 @@ export default {
           sub: 'групповая беседа',
           avatar: thread?.avatar || ''
         }
-        copyConversationAvatarFromStorage()
         if (conversationAvatarPreview.value) {
           peer.value = { ...peer.value, avatar: conversationAvatarPreview.value }
         }
@@ -2189,7 +2189,7 @@ export default {
             unread: false,
             unreadCount: 0,
             title: String(conv?.title || '').trim() || 'Беседа',
-            avatar: '',
+            avatar: String(existing.avatar || '').trim(),
             isConversation: true,
             conversationId
           }
@@ -2411,7 +2411,7 @@ export default {
         const threadId = `${CONVERSATION_THREAD_PREFIX}${joinId}`
         router.replace({ name: 'messages', query: { with: threadId } })
       } catch (e) {
-        alert(String(e?.message || 'Не удалось присоединиться к беседе по ссылке'))
+        showFlash(String(e?.message || 'Не удалось присоединиться к беседе по ссылке'), 'error', 4200)
       }
     }
 
@@ -2440,7 +2440,6 @@ export default {
             sub: 'групповая беседа',
             avatar: thread?.avatar || ''
           }
-          copyConversationAvatarFromStorage()
           if (conversationAvatarPreview.value) {
             peer.value = { ...peer.value, avatar: conversationAvatarPreview.value }
           }
@@ -2586,7 +2585,6 @@ export default {
             sub: 'групповая беседа',
             avatar: thread?.avatar || ''
           }
-          copyConversationAvatarFromStorage()
           if (conversationAvatarPreview.value) {
             peer.value = { ...peer.value, avatar: conversationAvatarPreview.value }
           }
@@ -2640,6 +2638,8 @@ export default {
       conversationAvatarInput,
       conversationAvatarCropOpen,
       pendingConversationAvatarFile,
+      flashMessage,
+      flashTone,
       rolePermissions,
       ROLE_OPTIONS,
       EDITABLE_ROLE_OPTIONS,
@@ -2836,6 +2836,8 @@ export default {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -3684,6 +3686,24 @@ export default {
   opacity: 0.65;
 }
 
+.mv-flash {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 220;
+  max-width: min(92vw, 560px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  background: #111;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(0,0,0,.22);
+}
+.mv-flash-success { background: #1f7a44; }
+.mv-flash-error { background: #b3261e; }
+
 @media (max-width: 980px) {
   .mv {
     grid-template-columns: 1fr;
@@ -3703,9 +3723,11 @@ export default {
   .mv-right.mv-right-open {
     display: flex;
     position: fixed;
-    inset: 74px 8px 88px 8px;
-    z-index: 40;
-    box-shadow: 0 12px 34px rgba(0,0,0,.18);
+    inset: 0;
+    z-index: 140;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
   }
 
   .chat-back {
