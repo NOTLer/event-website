@@ -74,7 +74,7 @@
           <div class="avatar-block">
             <div class="avatar">
               <img v-if="previewAvatarUrl" :src="previewAvatarUrl" alt="" />
-              <img v-else-if="profile?.image_path" :src="profile.image_path" alt="" />
+              <img v-else-if="profileAvatarUrl" :src="profileAvatarUrl" alt="" />
               <div v-else class="ph">👤</div>
             </div>
 
@@ -121,7 +121,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import AuthModal from '../../components/AuthModal.vue'
 import { useRouter } from 'vue-router'
-import { useSupabase } from '../../composables/useSupabase'
+import { useSupabase, toAvatarPublicUrl } from '../../composables/useSupabase'
 
 export default {
   name: 'ProfileView',
@@ -165,6 +165,7 @@ export default {
 
     const pickedAvatarFile = ref(null)
     const previewAvatarUrl = ref('')
+    const profileAvatarUrl = computed(() => toAvatarPublicUrl(profile.value?.image_path) || toAvatarPublicUrl(profile.value?.avatar_url))
 
     const openAuth = () => {
       showAuth.value = true
@@ -307,6 +308,7 @@ export default {
       saving,
       session,
       profile,
+      profileAvatarUrl,
       telegramLink,
       showAuth,
       openAuth,

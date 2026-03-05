@@ -207,23 +207,13 @@ import AuthModal from './components/AuthModal.vue'
 import ProfileModal from './components/ProfileModal.vue'
 import CreateEventModal from './components/CreateEventModal.vue'
 import AvatarCropModal from './components/AvatarCropModal.vue'
-import { useSupabase, supabase } from './composables/useSupabase.js'
+import { useSupabase, supabase, toAvatarPublicUrl } from './composables/useSupabase.js'
 import { useUnreadMessages } from './composables/unreadMessages.js'
 
-const normalizeStoragePublicUrl = (url) => {
-  if (!url || typeof url !== 'string') return ''
-  const u = url.trim()
-  if (!u) return ''
-  if (u.includes('/storage/v1/object/public/')) return u
-  if (u.includes('/storage/v1/object/')) return u.replace('/storage/v1/object/', '/storage/v1/object/public/')
-  return u
-}
-
-
 const pickUserAvatar = (user) => {
-  const custom = normalizeStoragePublicUrl(String(user?.image_path || '').trim())
+  const custom = toAvatarPublicUrl(user?.image_path)
   if (custom) return custom
-  return normalizeStoragePublicUrl(String(user?.avatar_url || '').trim())
+  return toAvatarPublicUrl(user?.avatar_url)
 }
 
 const userTitle = (u) => {

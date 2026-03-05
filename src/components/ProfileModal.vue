@@ -150,6 +150,7 @@
 
 <script>
 import { reactive, watch, ref, computed, onBeforeUnmount } from 'vue'
+import { toAvatarPublicUrl } from '../composables/useSupabase.js'
 
 export default {
   name: 'ProfileModal',
@@ -252,8 +253,8 @@ export default {
     }
 
     const profileAvatarUrl = computed(() => {
-      const custom = String(props.profile?.image_path || '').trim()
-      const google = String(props.profile?.avatar_url || '').trim()
+      const custom = toAvatarPublicUrl(props.profile?.image_path)
+      const google = toAvatarPublicUrl(props.profile?.avatar_url)
       return custom || google
     })
 

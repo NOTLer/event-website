@@ -5,13 +5,29 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
-const normalizeStoragePublicUrl = (url) => {
+export const normalizeStoragePublicUrl = (url) => {
   if (!url || typeof url !== 'string') return ''
   const u = url.trim()
   if (!u) return ''
   if (u.includes('/storage/v1/object/public/')) return u
   if (u.includes('/storage/v1/object/')) return u.replace('/storage/v1/object/', '/storage/v1/object/public/')
   return u
+}
+
+export const toAvatarPublicUrl = (value, { bucket = 'avatars' } = {}) => {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+
+  if (/^https?:\/\//i.test(raw) || raw.includes('/storage/v1/object/')) {
+    return normalizeStoragePublicUrl(raw)
+  }
+
+  const clean = raw.replace(/^\/+/, '')
+  const withNoBucketPrefix = clean.startsWith(`${bucket}/`) ? clean.slice(bucket.length + 1) : clean
+  if (!withNoBucketPrefix) return ''
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(withNoBucketPrefix)
+  return normalizeStoragePublicUrl(data?.publicUrl || '')
 }
 
 const compact = (obj) => {
@@ -304,10 +320,10 @@ export const useSupabase = () => {
     const fromType = String(file.type || '').toLowerCase().includes('jpeg') ? 'jpg' : ''
     const ext = (fromName || fromType || 'png').toLowerCase()
 
-    const preferredBucket = 'avatars'
-    const preferredFolder = 'ProfileImage'
+    const bucket = 'avatars'
+    const folder = 'ProfileImage'
     const timestamp = Date.now()
-    const preferredPath = `${preferredFolder}/${user.id}/${timestamp}.${ext}`
+    const path = `${folder}/${user.id}/${timestamp}.${ext}`
 
     const uploadOptions = {
       upsert: true,
@@ -315,28 +331,11 @@ export const useSupabase = () => {
       contentType: file.type || 'image/png'
     }
 
-    let uploadedBucket = preferredBucket
-    let uploadedPath = preferredPath
-
-    let { error: upErr } = await supabase.storage.from(uploadedBucket).upload(uploadedPath, file, uploadOptions)
-
-    if (upErr) {
-      const envBucket = String(import.meta.env.VITE_AVATAR_BUCKET || '').trim()
-      const envFolder = String(import.meta.env.VITE_AVATAR_FOLDER || '').trim() || preferredFolder
-      if (envBucket && envBucket !== preferredBucket) {
-        const envPath = `${envFolder}/${user.id}/${timestamp}.${ext}`
-        const res = await supabase.storage.from(envBucket).upload(envPath, file, uploadOptions)
-        upErr = res.error
-        if (!upErr) {
-          uploadedBucket = envBucket
-          uploadedPath = envPath
-        }
-      }
-    }
+    const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, uploadOptions)
 
     if (upErr) return { publicUrl: '', error: upErr }
 
-    const { data } = supabase.storage.from(uploadedBucket).getPublicUrl(uploadedPath)
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path)
     const basePublicUrl = normalizeStoragePublicUrl(data?.publicUrl || '')
     const publicUrl = basePublicUrl ? `${basePublicUrl}${basePublicUrl.includes('?') ? '&' : '?'}v=${timestamp}` : ''
     return { publicUrl, error: null, data: { publicUrl } }
