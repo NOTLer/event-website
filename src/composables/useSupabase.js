@@ -572,26 +572,25 @@ export const useSupabase = () => {
     const { user } = await getUser()
     if (!user?.id) return { data: [], error: new Error('Not authorized') }
 
-    const { data: memberships, error: membershipError } = await supabase
-      .from('conversation_participants')
-      .select('conversation_id')
-      .eq('user_id', user.id)
-      .limit(limit)
-
-    if (membershipError) return { data: [], error: membershipError }
-
-    const conversationIds = [...new Set((memberships || []).map((x) => String(x?.conversation_id || '')).filter(Boolean))]
-    if (conversationIds.length === 0) return { data: [], error: null }
-
+    const take = Math.max(1, Number(limit) || 250)
     const { data: conversations, error: conversationsError } = await supabase
       .from('conversations')
-      .select('id,title,created_at,updated_at')
-      .in('id', conversationIds)
+      .select('id,title,created_at,updated_at,conversation_participants!inner(user_id)')
+      .eq('conversation_participants.user_id', user.id)
       .order('updated_at', { ascending: false })
+      .limit(take)
 
     if (conversationsError) return { data: [], error: conversationsError }
 
-    return { data: conversations ?? [], error: null }
+    return {
+      data: (conversations || []).map((row) => ({
+        id: row.id,
+        title: row.title,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      })),
+      error: null
+    }
   }
 
   const createConversation = async ({ title = '', participantIds = [] } = {}) => {

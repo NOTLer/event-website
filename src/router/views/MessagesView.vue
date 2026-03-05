@@ -1066,7 +1066,24 @@ export default {
           }
         })
 
-        threads.value = enriched.sort((a, b) => new Date(b?.lastMessage?.created_at || 0) - new Date(a?.lastMessage?.created_at || 0))
+        const mergedByThreadId = new Map(enriched.map((t) => [t.otherUserId, t]))
+        for (const existing of threads.value) {
+          if (!existing?.isConversation) continue
+          const otherUserId = String(existing.otherUserId || '')
+          if (!otherUserId || mergedByThreadId.has(otherUserId)) continue
+          mergedByThreadId.set(otherUserId, {
+            otherUserId,
+            lastMessage: existing.lastMessage || { body: '', created_at: '' },
+            unread: false,
+            unreadCount: 0,
+            title: String(existing.title || '').trim() || 'Беседа',
+            avatar: '',
+            isConversation: true,
+            conversationId: String(existing.conversationId || conversationIdFromThreadId(otherUserId) || '').trim()
+          })
+        }
+
+        threads.value = [...mergedByThreadId.values()].sort((a, b) => new Date(b?.lastMessage?.created_at || 0) - new Date(a?.lastMessage?.created_at || 0))
         calcUnreadTotal()
 
         const qWith = String(route.query.with || '').trim()
