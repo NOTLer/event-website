@@ -339,113 +339,88 @@
         <button class="fwd-modal-close" type="button" @click="closeConversationSettings" aria-label="Закрыть">✕</button>
       </div>
 
-      <div class="conv-settings-tabs">
-        <button
-          type="button"
-          class="conv-tab-btn"
-          :class="{ active: conversationSettingsTab === 'participants' }"
-          @click="conversationSettingsTab = 'participants'"
-        >Участники</button>
-        <button
-          type="button"
-          class="conv-tab-btn"
-          :class="{ active: conversationSettingsTab === 'management' }"
-          @click="conversationSettingsTab = 'management'"
-        >Управление</button>
-      </div>
-
       <div v-if="conversationSettingsLoading" class="fwd-modal-empty">Загрузка...</div>
-      <div v-else class="conv-settings-body">
-        <template v-if="conversationSettingsTab === 'participants'">
-          <div class="conv-members-block">
-            <div class="conv-title-label">Список участников</div>
-            <input v-model="conversationParticipantsSearch" class="chat-input" type="text" placeholder="Поиск по участникам" />
+      <template v-else>
+        <div class="conv-settings-top">
+          <div class="conv-avatar-box">
+            <img v-if="conversationAvatarPreview" :src="conversationAvatarPreview" alt="avatar" class="conv-avatar-preview" />
+            <div v-else class="conv-avatar-ph">👥</div>
+            <label v-if="isConversationOwner" class="conv-avatar-pick">
+              Выбрать аватар
+              <input type="file" accept="image/*" class="conv-avatar-input" @change="onConversationAvatarPicked" />
+            </label>
+          </div>
 
-            <div class="conv-members-list">
-              <div v-for="item in conversationParticipantsFiltered" :key="`member-${item.user_id}`" class="conv-member-row">
-                <div class="conv-member-main">
-                  <img v-if="item.avatar" :src="item.avatar" class="fwd-chat-ava" alt="avatar" />
-                  <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
-                  <div>
-                    <div class="conv-friend-name">{{ item.title }}</div>
-                    <div class="conv-member-sub">{{ item.username ? `@${item.username}` : 'без username' }} · {{ roleTitle(item.role) }}</div>
-                  </div>
+          <div class="conv-title-block grow">
+            <div class="conv-title-label">Название беседы</div>
+            <input v-model="conversationTitleDraft" class="chat-input" type="text" :disabled="!isConversationOwner || conversationSaveLoading" />
+          </div>
+        </div>
+
+        <div class="conv-members-block">
+          <div class="conv-title-label">Участники</div>
+          <input v-model="conversationParticipantsSearch" class="chat-input" type="text" placeholder="Поиск по участникам" />
+          <div class="conv-members-list">
+            <div v-for="item in conversationParticipantsFiltered" :key="`member-${item.user_id}`" class="conv-member-row">
+              <div class="conv-member-main">
+                <img v-if="item.avatar" :src="item.avatar" class="fwd-chat-ava" alt="avatar" />
+                <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+                <div>
+                  <div class="conv-friend-name">{{ item.title }}</div>
+                  <div class="conv-member-sub">{{ item.username ? `@${item.username}` : 'без username' }}</div>
                 </div>
-
-                <select
-                  class="conv-role-select"
-                  :disabled="!isConversationOwner || item.role === 'owner' || roleSaving"
-                  :value="item.role"
-                  @change="updateParticipantRole(item, $event.target.value)"
-                >
-                  <option v-for="role in ROLE_OPTIONS" :key="`${item.user_id}-${role}`" :value="role">{{ roleTitle(role) }}</option>
-                </select>
               </div>
-            </div>
 
-            <div v-if="isConversationOwner" class="conv-add-wrap">
-              <button class="chat-send" type="button" @click="showAddParticipantsPanel = !showAddParticipantsPanel">
-                {{ showAddParticipantsPanel ? 'Скрыть добавление участников' : 'Добавить участника' }}
-              </button>
-            </div>
-
-            <div v-if="isConversationOwner && showAddParticipantsPanel" class="conv-members-block conv-add-panel">
-              <input v-model="addParticipantsSearch" class="chat-input" type="text" placeholder="Поиск среди друзей" />
-              <div class="conv-friends-list">
-                <label v-for="f in friendsForAddFiltered" :key="`conv-add-${f.id}`" class="conv-friend-row">
-                  <input v-model="selectedParticipantsToAdd" :value="f.id" type="checkbox" />
-                  <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
-                  <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
-                  <div class="conv-friend-name">{{ f.title }}</div>
-                </label>
-              </div>
-              <button class="chat-send" type="button" :disabled="selectedParticipantsToAdd.length === 0" @click="addSelectedParticipants">Добавить выбранных</button>
+              <select
+                class="conv-role-select"
+                :disabled="!isConversationOwner || item.role === 'owner' || roleSaving"
+                :value="item.role"
+                @change="updateParticipantRole(item, $event.target.value)"
+              >
+                <option v-for="role in ROLE_OPTIONS" :key="`${item.user_id}-${role}`" :value="role">{{ roleTitle(role) }}</option>
+              </select>
             </div>
           </div>
-        </template>
+        </div>
 
-        <template v-else>
-          <div class="conv-settings-top">
-            <div class="conv-avatar-box">
-              <img v-if="conversationAvatarPreview" :src="conversationAvatarPreview" alt="avatar" class="conv-avatar-preview" />
-              <div v-else class="conv-avatar-ph">👥</div>
-              <label v-if="isConversationOwner" class="conv-avatar-pick">
-                Выбрать аватар
-                <input type="file" accept="image/*" class="conv-avatar-input" @change="onConversationAvatarPicked" />
-              </label>
-            </div>
-
-            <div class="conv-title-block grow">
-              <div class="conv-title-label">Название беседы</div>
-              <input v-model="conversationTitleDraft" class="chat-input" type="text" :disabled="!isConversationOwner || conversationSaveLoading" />
-            </div>
+        <div v-if="isConversationOwner" class="conv-members-block">
+          <div class="conv-title-label">Добавить участников</div>
+          <input v-model="addParticipantsSearch" class="chat-input" type="text" placeholder="Поиск среди друзей" />
+          <div class="conv-friends-list">
+            <label v-for="f in friendsForAddFiltered" :key="`conv-add-${f.id}`" class="conv-friend-row">
+              <input v-model="selectedParticipantsToAdd" :value="f.id" type="checkbox" />
+              <img v-if="f.avatar" :src="f.avatar" class="fwd-chat-ava" alt="avatar" />
+              <div v-else class="fwd-chat-ava fwd-chat-ava-ph">👤</div>
+              <div class="conv-friend-name">{{ f.title }}</div>
+            </label>
           </div>
+          <button class="chat-send" type="button" :disabled="selectedParticipantsToAdd.length === 0" @click="addSelectedParticipants">Добавить выбранных</button>
+        </div>
 
-          <div class="conv-members-block">
-            <div class="conv-title-label">Разрешения по ролям</div>
-            <div class="role-grid" v-for="role in ROLE_OPTIONS" :key="`perm-${role}`">
-              <div class="role-grid-title">{{ roleTitle(role) }}</div>
-              <label v-for="(value, key) in rolePermissions?.[role] || {}" :key="`${role}-${key}`" class="perm-row">
-                <span>{{ permissionLabel(key) }}</span>
-                <input
-                  type="checkbox"
-                  :checked="value"
-                  :disabled="!isConversationOwner || role === 'owner'"
-                  @change="toggleRolePermission(role, key)"
-                />
-              </label>
-            </div>
+        <div class="conv-members-block">
+          <div class="conv-title-label">Разрешения по ролям</div>
+          <div class="role-grid" v-for="role in ROLE_OPTIONS" :key="`perm-${role}`">
+            <div class="role-grid-title">{{ roleTitle(role) }}</div>
+            <label v-for="(value, key) in rolePermissions?.[role] || {}" :key="`${role}-${key}`" class="perm-row">
+              <span>{{ permissionLabel(key) }}</span>
+              <input
+                type="checkbox"
+                :checked="value"
+                :disabled="!isConversationOwner || role === 'owner'"
+                @change="toggleRolePermission(role, key)"
+              />
+            </label>
           </div>
+        </div>
 
-          <button
-            v-if="isConversationOwner"
-            class="chat-send conv-create-btn"
-            type="button"
-            :disabled="conversationSaveLoading"
-            @click="saveConversationSettings"
-          >Сохранить настройки</button>
-        </template>
-      </div>
+        <button
+          v-if="isConversationOwner"
+          class="chat-send conv-create-btn"
+          type="button"
+          :disabled="conversationSaveLoading"
+          @click="saveConversationSettings"
+        >Сохранить настройки</button>
+      </template>
     </div>
   </div>
 
@@ -638,8 +613,6 @@ export default {
     const conversationSettingsLoading = ref(false)
     const conversationParticipants = ref([])
     const conversationParticipantsSearch = ref('')
-    const conversationSettingsTab = ref('participants')
-    const showAddParticipantsPanel = ref(false)
     const conversationTitleDraft = ref('')
     const conversationAvatarPreview = ref('')
     const conversationAvatarFile = ref(null)
@@ -795,15 +768,9 @@ export default {
           return
         }
         const parsed = safeJsonParse(raw)
-        const merged = {
+        rolePermissions.value = {
           ...fallback,
           ...(parsed && typeof parsed === 'object' ? parsed : {})
-        }
-        rolePermissions.value = {
-          ...merged,
-          owner: { ...DEFAULT_ROLE_PERMISSIONS.owner },
-          admin: { ...DEFAULT_ROLE_PERMISSIONS.admin, ...(merged?.admin || {}) },
-          member: { ...DEFAULT_ROLE_PERMISSIONS.member, ...(merged?.member || {}) }
         }
       } catch {
         rolePermissions.value = fallback
@@ -929,8 +896,6 @@ export default {
       conversationParticipantsSearch.value = ''
       addParticipantsSearch.value = ''
       selectedParticipantsToAdd.value = []
-      conversationSettingsTab.value = 'participants'
-      showAddParticipantsPanel.value = false
       try {
         const currentTitle = String(peer.value?.title || threads.value.find((t) => t.otherUserId === selectedOtherId.value)?.title || 'Беседа').trim()
         conversationTitleDraft.value = currentTitle
@@ -963,7 +928,6 @@ export default {
       conversationSettingsOpen.value = false
       conversationAvatarCropOpen.value = false
       pendingConversationAvatarFile.value = null
-      showAddParticipantsPanel.value = false
     }
 
     const addSelectedParticipants = async () => {
@@ -971,8 +935,6 @@ export default {
       try {
         const { error } = await addParticipantsToConversation(selectedConversationId.value, selectedParticipantsToAdd.value)
         if (error) throw error
-        selectedParticipantsToAdd.value = []
-        showAddParticipantsPanel.value = false
         await openConversationSettings()
       } catch (e) {
         alert(String(e?.message || 'Не удалось добавить участников'))
@@ -2423,8 +2385,6 @@ export default {
       conversationSettingsLoading,
       conversationParticipants,
       conversationParticipantsSearch,
-      conversationSettingsTab,
-      showAddParticipantsPanel,
       conversationParticipantsFiltered,
       conversationTitleDraft,
       conversationAvatarPreview,
@@ -3371,47 +3331,8 @@ export default {
 }
 
 
-
 .conv-settings-card {
   max-width: 760px;
-  max-height: min(86vh, 860px);
-  display: flex;
-  flex-direction: column;
-}
-
-.conv-settings-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 0 10px 8px;
-  border-bottom: 1px solid #eceff4;
-}
-
-.conv-tab-btn {
-  border: 1px solid #d9dfeb;
-  border-radius: 10px;
-  background: #fff;
-  color: #1f2937;
-  font-weight: 700;
-  padding: 8px 12px;
-}
-
-.conv-tab-btn.active {
-  background: #eef2ff;
-  border-color: #b9c6ff;
-}
-
-.conv-settings-body {
-  overflow-y: auto;
-  padding: 10px;
-}
-
-.conv-add-wrap {
-  margin-top: 10px;
-}
-
-.conv-add-panel {
-  border-top: 1px dashed #e5e7eb;
-  padding-top: 10px;
 }
 
 .conv-settings-top {
