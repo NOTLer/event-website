@@ -36,6 +36,11 @@
             </div>
 
             <div class="field">
+              <div class="label">Ссылка для записи *</div>
+              <input class="input" v-model="form.signup_url" placeholder="https://example.com/signup" />
+            </div>
+
+            <div class="field">
               <div class="label">Цена (₽)</div>
               <input class="input" type="number" min="0" inputmode="numeric" v-model="form.price" placeholder="0" />
               <div class="mini"><span class="badge" v-if="isFree">🆓 Бесплатно</span></div>
@@ -159,6 +164,7 @@ export default {
         date_time_event: '',
         address: '',
         organizer: '',
+        signup_url: '',
         price: '0',
         is_online: false
       },
@@ -279,10 +285,12 @@ export default {
       const title = trimOrNull(this.form.title)
       const description = trimOrNull(this.form.description)
       const dt = trimOrNull(this.form.date_time_event)
+      const signupUrl = trimOrNull(this.form.signup_url)
 
       if (!title) return (this.error = 'Укажи название.')
       if (!dt) return (this.error = 'Укажи дату и время.')
       if (!description) return (this.error = 'Укажи описание.')
+      if (!signupUrl) return (this.error = 'Укажи ссылку для записи.')
 
       const priceNum = Number(this.form.price)
       const price = Number.isFinite(priceNum) ? priceNum : 0
@@ -294,6 +302,7 @@ export default {
         date_time_event: dt,
         address: trimOrNull(this.form.address),
         organizer: trimOrNull(this.form.organizer),
+        signup_url: signupUrl,
         price,
         is_online: !!this.form.is_online,
         is_free,
@@ -319,6 +328,7 @@ export default {
           date_time_event: '',
           address: '',
           organizer: '',
+          signup_url: '',
           price: '0',
           is_online: false
         }

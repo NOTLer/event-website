@@ -58,12 +58,23 @@
                 <option value="female">Женский</option>
               </select>
             </label>
+
+            <label class="field field-full">
+              <span>О себе (до 1000 символов)</span>
+              <textarea
+                v-model="form.about"
+                maxlength="1000"
+                rows="3"
+                placeholder="Расскажите о себе..."
+              ></textarea>
+              <small class="counter">{{ aboutLeft }} символов осталось</small>
+            </label>
           </div>
 
           <div class="avatar-block">
             <div class="avatar">
               <img v-if="previewAvatarUrl" :src="previewAvatarUrl" alt="" />
-              <img v-else-if="profile?.image_path" :src="profile.image_path" alt="" />
+              <img v-else-if="profileAvatarUrl" :src="profileAvatarUrl" alt="" />
               <div v-else class="ph">👤</div>
             </div>
 
@@ -81,6 +92,16 @@
             <span v-if="telegramLink">привязан (@{{ telegramLink.username || 'без username' }})</span>
             <span v-else>не привязан (открой вход → Telegram)</span>
           </div>
+
+          <div class="business-block">
+            <b>Мероприятия:</b>
+            <template v-if="profile?.It_business">
+              <button class="btn" type="button" @click="goToMyEvents">Добавить / управлять мероприятиями</button>
+            </template>
+            <p v-else class="muted no-margin">
+              Добавлять мероприятия могут только бизнес аккаунты.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -97,14 +118,17 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import AuthModal from '../../components/AuthModal.vue'
-import { useSupabase } from '../../composables/useSupabase'
+import { useRouter } from 'vue-router'
+import { useSupabase, toAvatarPublicUrl } from '../../composables/useSupabase'
 
 export default {
   name: 'ProfileView',
   components: { AuthModal },
   setup() {
+    const router = useRouter()
+
     const {
       getSession,
       getUser,
@@ -135,11 +159,13 @@ export default {
       birth_day: '',
       phone: '',
       email: '',
-      gender: ''
+      gender: '',
+      about: ''
     })
 
     const pickedAvatarFile = ref(null)
     const previewAvatarUrl = ref('')
+    const profileAvatarUrl = computed(() => toAvatarPublicUrl(profile.value?.image_path) || toAvatarPublicUrl(profile.value?.avatar_url))
 
     const openAuth = () => {
       showAuth.value = true
@@ -152,6 +178,7 @@ export default {
       form.phone = p?.phone ?? ''
       form.email = p?.email ?? ''
       form.gender = p?.gender ?? ''
+      form.about = p?.about ?? ''
     }
 
     const load = async () => {
@@ -237,6 +264,8 @@ export default {
           gender: form.gender || null
         }
 
+        patch.about = String(form.about || '').trim().slice(0, 1000) || null
+
         if (avatarUrl) patch.image_path = avatarUrl
 
         const { data, error } = await updateMyPublicUser(patch)
@@ -260,6 +289,13 @@ export default {
       await load()
     }
 
+
+    const aboutLeft = computed(() => Math.max(0, 1000 - String(form.about || '').length))
+
+    const goToMyEvents = () => {
+      router.push({ name: 'my-events' })
+    }
+
     onMounted(async () => {
       await load()
       // по твоему требованию — при переходе на профиль сразу показываем рамку входа
@@ -272,6 +308,7 @@ export default {
       saving,
       session,
       profile,
+      profileAvatarUrl,
       telegramLink,
       showAuth,
       openAuth,
@@ -282,7 +319,9 @@ export default {
       onPickAvatar,
       pickedAvatarFile,
       previewAvatarUrl,
-      saveProfile
+      saveProfile,
+      aboutLeft,
+      goToMyEvents
     }
   }
 }
@@ -290,7 +329,7 @@ export default {
 
 <style scoped>
 .wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
-.card { background:#fff; border-radius:16px; padding:18px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.card { background:linear-gradient(180deg,#ffffff,#fcfbff); border-radius:20px; padding:22px; box-shadow:0 14px 40px rgba(67,43,132,.08); border:1px solid rgba(138,117,227,.14); }
 .title { margin: 0 0 12px; }
 
 .muted { opacity:.7; margin-bottom: 10px; }
@@ -319,12 +358,18 @@ export default {
 .field { display:flex; flex-direction:column; gap:6px; }
 .field span { font-size:12px; opacity:.7; }
 
-input, select {
+input, select, textarea {
   border: 1px solid #efefef;
   border-radius: 12px;
   padding: 10px 12px;
   outline: none;
 }
+
+textarea{resize:vertical;min-height:82px;font-family:inherit;}
+.field-full{grid-column:1/-1;}
+.counter{opacity:.7;font-size:12px;}
+.business-block{margin-top:14px;padding-top:14px;border-top:1px solid #efefef;display:flex;flex-direction:column;gap:10px;}
+.no-margin{margin:0;}
 
 .avatar-block { display:flex; gap:14px; align-items:center; margin-top: 14px; }
 .avatar {

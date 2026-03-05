@@ -108,12 +108,52 @@ export default {
 .tg { margin-top: 14px; padding-top: 14px; border-top: 1px solid #efefef; }
 .tg-title { font-weight: 700; margin-bottom: 10px; }
 
-.tg-mount { min-height: 48px; }
+.tg-mount {
+  min-height: 48px;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #efefef;
+  border-radius: 12px;
+  padding: 8px;
+  background: #fafafa;
+  scrollbar-width: thin;
+  scrollbar-color: #c4b5fd #f5f3ff;
+}
 
-@media (min-width: 981px) {
+.tg-mount::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tg-mount::-webkit-scrollbar-track {
+  background: #f5f3ff;
+  border-radius: 12px;
+}
+
+.tg-mount::-webkit-scrollbar-thumb {
+  background: #c4b5fd;
+  border-radius: 12px;
+}
+
+.tg-mount::-webkit-scrollbar-thumb:hover {
+  background: #a78bfa;
+}
+
+.tg-mount :deep(iframe.bis_skin_checked) {
+  width: 100% !important;
+  min-height: 180px !important;
+  max-height: 220px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  touch-action: pan-y !important;
+  display: block;
+  border: 0;
+}
+
+@media (max-width: 980px) {
   .tg-mount :deep(iframe.bis_skin_checked) {
-    height: 44px !important;
-    max-height: 44px !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 }
 

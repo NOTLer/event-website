@@ -3,9 +3,48 @@
     <header class="header">
       <div class="header-container">
         <div class="header-left">
-          <div class="search-container">
+          <div ref="searchBoxRef" class="search-container">
             <div class="search-icon">🔍</div>
-            <input v-model="searchTerm" type="text" placeholder="Поиск" class="search-input" />
+            <input
+              v-model="searchTerm"
+              type="text"
+              placeholder="Поиск людей: ФИО или @username"
+              class="search-input"
+              @focus="onSearchFocus"
+            />
+
+            <div v-if="showPeopleDropdown" class="people-dropdown">
+              <div v-if="peopleSearchLoading" class="people-dropdown-state">Ищу пользователей…</div>
+              <div v-else-if="peopleResults.length === 0" class="people-dropdown-state">Никого не найдено</div>
+
+              <div v-else class="people-list">
+                <div v-for="u in peopleResults" :key="u.id" class="people-item">
+                  <div class="people-avatar-wrap">
+                    <img v-if="u.avatar" :src="u.avatar" class="people-avatar" alt="avatar" />
+                    <div v-else class="people-avatar-ph">👤</div>
+                  </div>
+
+                  <div class="people-main">
+                    <div class="people-name">{{ u.title }}</div>
+                    <div class="people-username">@{{ u.username || '—' }}</div>
+                    <div class="people-mutual">{{ formatMutualFriendsText(u.mutualFriendsCount) }}</div>
+                  </div>
+
+                  <div class="people-actions">
+                    <button class="people-btn" type="button" @click="messageUser(u)">Написать</button>
+                    <button class="people-btn" type="button" @click="openUserProfile(u)">Профиль</button>
+                    <button
+                      class="people-btn people-btn-primary"
+                      type="button"
+                      :disabled="u.friendActionDisabled"
+                      @click="addFriendFromSearch(u)"
+                    >
+                      {{ u.friendActionLabel }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -52,7 +91,7 @@
 
         <!-- 4: Меню (в мобилке между сообщениями и профилем) -->
         <!-- Меню нужно только на мобильной версии -->
-        <button class="nav-item nav-item-menu mobile-only" type="button" @click="openMenu">
+        <button v-if="showMobileMenuButton" class="nav-item nav-item-menu mobile-only" type="button" @click="openMenu">
           <span class="ni-ico">☰</span>
           <span class="ni-txt">Меню</span>
         </button>
@@ -75,14 +114,14 @@
 
       <main class="content">
         <router-view v-slot="{ Component }">
-          <component :is="Component" :global-search-term="searchTerm" />
+          <component :is="Component" />
         </router-view>
       </main>
     </div>
 
     <!-- MENU DRAWER -->
     <teleport to="body">
-      <div v-if="menuOpen" class="menu-root" @keydown.esc="closeMenu" tabindex="-1">
+      <div v-if="menuOpen && showMobileMenuButton" class="menu-root" @keydown.esc="closeMenu" tabindex="-1">
         <div class="overlay" @click="closeMenu"></div>
 
         <aside class="menu-drawer" role="dialog" aria-modal="true" aria-label="Меню">
@@ -168,16 +207,23 @@ import AuthModal from './components/AuthModal.vue'
 import ProfileModal from './components/ProfileModal.vue'
 import CreateEventModal from './components/CreateEventModal.vue'
 import AvatarCropModal from './components/AvatarCropModal.vue'
-import { useSupabase } from './composables/useSupabase.js'
+import { useSupabase, supabase, toAvatarPublicUrl } from './composables/useSupabase.js'
 import { useUnreadMessages } from './composables/unreadMessages.js'
 
-const normalizeStoragePublicUrl = (url) => {
-  if (!url || typeof url !== 'string') return ''
-  const u = url.trim()
-  if (!u) return ''
-  if (u.includes('/storage/v1/object/public/')) return u
-  if (u.includes('/storage/v1/object/')) return u.replace('/storage/v1/object/', '/storage/v1/object/public/')
-  return u
+const pickUserAvatar = (user) => {
+  const custom = toAvatarPublicUrl(user?.image_path)
+  if (custom) return custom
+  return toAvatarPublicUrl(user?.avatar_url)
+}
+
+const userTitle = (u) => {
+  if (!u) return 'Пользователь'
+  const fn = String(u.first_name || '').trim()
+  const ln = String(u.last_name || '').trim()
+  const full = `${fn} ${ln}`.trim()
+  const uname = String(u.username || '').trim()
+  const email = String(u.email || '').trim()
+  return full || uname || email || 'Пользователь'
 }
 
 export default {
@@ -201,7 +247,12 @@ export default {
       getMyUnreadMessagesCount,
       subscribeToMyMessages,
       getCategories,
-      createBusinessEvent
+      createBusinessEvent,
+      searchUsers,
+      getFriendships,
+      sendFriendRequest,
+      acceptFriendRequest,
+      removeFriendOrRequest
     } = useSupabase()
 
     const { unreadCount, setUnreadCount } = useUnreadMessages()
@@ -212,6 +263,14 @@ export default {
     const appCommitName = import.meta.env.VITE_APP_COMMIT_NAME || ''
 
     const searchTerm = ref('')
+    const searchBoxRef = ref(null)
+    const peopleResults = ref([])
+    const peopleSearchLoading = ref(false)
+    const showPeopleDropdown = ref(false)
+    const myFriendsSet = ref(new Set())
+    const friendshipIndex = ref(new Map())
+    const mutualFriendsCache = new Map()
+    let searchDebounce = null
 
     const session = ref(null)
     const profile = ref(null)
@@ -229,7 +288,7 @@ export default {
 
     const menuOpen = ref(false)
 
-    const headerAvatarUrl = computed(() => normalizeStoragePublicUrl(profile.value?.image_path || ''))
+    const headerAvatarUrl = computed(() => pickUserAvatar(profile.value))
     const showHeaderAvatar = ref(false)
 
     const badgeText = computed(() => {
@@ -249,6 +308,12 @@ export default {
       return `Версия сборки: ${appVersion}`
     })
 
+    const isMobileChatFocused = computed(() => {
+      return route.name === 'messages' && String(route.query.with || '').trim().length > 0
+    })
+
+    const showMobileMenuButton = computed(() => !isMobileChatFocused.value)
+
     const onHeaderImgError = () => {
       showHeaderAvatar.value = false
     }
@@ -259,6 +324,7 @@ export default {
 
       const { user } = await getUser()
       if (user) {
+        await loadMyFriendsSet()
         await ensurePublicUserRow(user)
         const { data } = await getMyPublicUser()
         profile.value = data || null
@@ -269,6 +335,8 @@ export default {
         const { count } = await getMyUnreadMessagesCount()
         setUnreadCount(count || 0)
       } else {
+        myFriendsSet.value = new Set()
+        friendshipIndex.value = new Map()
         profile.value = null
         telegramLink.value = null
         setUnreadCount(0)
@@ -280,6 +348,195 @@ export default {
     const loadCategories = async () => {
       const { data } = await getCategories()
       categories.value = data || []
+    }
+
+    const loadAcceptedFriendsFor = async (uid) => {
+      const id = String(uid || '').trim()
+      if (!id) return new Set()
+      const { data } = await supabase
+        .from('friendships')
+        .select('requester_id,addressee_id')
+        .eq('status', 'accepted')
+        .or(`requester_id.eq.${id},addressee_id.eq.${id}`)
+
+      const set = new Set()
+      for (const row of (data || [])) {
+        const requester = String(row?.requester_id || '')
+        const addressee = String(row?.addressee_id || '')
+        if (requester === id && addressee) set.add(addressee)
+        if (addressee === id && requester) set.add(requester)
+      }
+      return set
+    }
+
+    const loadMyFriendsSet = async () => {
+      const { data } = await getFriendships()
+      const me = String(profile.value?.id || session.value?.user?.id || '')
+      const set = new Set()
+      const idx = new Map()
+      for (const row of (data || [])) {
+        const requester = String(row?.requester_id || '')
+        const addressee = String(row?.addressee_id || '')
+        const isRequesterMe = requester === me
+        const otherId = isRequesterMe ? addressee : requester
+        if (!otherId) continue
+
+        if (row?.status === 'accepted') {
+          set.add(otherId)
+          idx.set(otherId, 'friend')
+        } else if (row?.status === 'pending') {
+          idx.set(otherId, isRequesterMe ? 'outgoing' : 'incoming')
+        }
+      }
+      myFriendsSet.value = set
+      friendshipIndex.value = idx
+      mutualFriendsCache.clear()
+    }
+
+    const friendshipState = (userId) => {
+      const id = String(userId || '')
+      const me = String(profile.value?.id || session.value?.user?.id || '')
+      if (!id || !me) return 'guest'
+      return friendshipIndex.value.get(id) || 'none'
+    }
+
+    const getMutualFriendsCount = async (otherId) => {
+      const id = String(otherId || '').trim()
+      if (!id || !session.value?.user?.id) return null
+      if (mutualFriendsCache.has(id)) return mutualFriendsCache.get(id)
+      const theirSet = await loadAcceptedFriendsFor(id)
+      let common = 0
+      for (const myFriendId of myFriendsSet.value) {
+        if (theirSet.has(myFriendId)) common++
+      }
+      mutualFriendsCache.set(id, common)
+      return common
+    }
+
+    const enrichUsersForDropdown = async (list) => {
+      const out = (list || []).map((u) => {
+        const state = friendshipState(u.id)
+        const actionLabel = state === 'friend'
+          ? 'В друзьях'
+          : state === 'incoming'
+            ? 'Принять заявку'
+            : state === 'outgoing'
+              ? 'Заявка отправлена'
+              : 'Добавить в друзья'
+        return {
+          ...u,
+          title: userTitle(u),
+          avatar: pickUserAvatar(u),
+          friendActionLabel: actionLabel,
+          friendActionDisabled: state === 'friend',
+          mutualFriendsCount: null
+        }
+      })
+
+      await Promise.all(
+        out.map(async (u, idx) => {
+          const count = await getMutualFriendsCount(u.id)
+          out[idx].mutualFriendsCount = count
+        })
+      )
+
+      return out
+    }
+
+    const runPeopleSearch = async () => {
+      const raw = String(searchTerm.value || '').trim()
+      if (!raw) {
+        peopleResults.value = []
+        showPeopleDropdown.value = false
+        return
+      }
+
+      const usernameOnly = raw.startsWith('@')
+      const pureQuery = usernameOnly ? raw.slice(1).trim() : raw
+      if (!pureQuery) {
+        peopleResults.value = []
+        showPeopleDropdown.value = false
+        return
+      }
+
+      peopleSearchLoading.value = true
+      showPeopleDropdown.value = true
+      try {
+        if (session.value?.user?.id) await loadMyFriendsSet()
+
+        const seed = usernameOnly ? pureQuery : pureQuery.split(/\s+/)[0]
+        const { data } = await searchUsers(seed, 8, { usernameOnly })
+        const myId = String(profile.value?.id || session.value?.user?.id || '')
+        const qLower = pureQuery.toLowerCase()
+
+        let base = (data || []).filter((u) => String(u?.id || '') !== myId)
+        base = base.filter((u) => {
+          const full = `${String(u?.first_name || '').trim()} ${String(u?.last_name || '').trim()}`.trim().toLowerCase()
+          const uname = String(u?.username || '').toLowerCase()
+          if (usernameOnly) return uname.startsWith(qLower)
+          return full.includes(qLower) || uname.includes(qLower)
+        })
+
+        peopleResults.value = await enrichUsersForDropdown(base)
+      } finally {
+        peopleSearchLoading.value = false
+      }
+    }
+
+    const onSearchFocus = () => {
+      if (searchTerm.value.trim()) showPeopleDropdown.value = true
+    }
+
+    const onGlobalClick = (e) => {
+      const root = searchBoxRef.value
+      if (!root) return
+      if (!root.contains(e.target)) showPeopleDropdown.value = false
+    }
+
+    const formatMutualFriendsText = (count) => {
+      if (count === null || count === undefined) return 'Общие друзья: —'
+      return `Общие друзья: ${count}`
+    }
+
+    const messageUser = (u) => {
+      const otherId = String(u?.id || '').trim()
+      if (!otherId) return
+      if (!session.value?.user?.id) {
+        showAuth.value = true
+        return
+      }
+      showPeopleDropdown.value = false
+      searchTerm.value = ''
+      router.push({ name: 'messages', query: { with: otherId } })
+    }
+
+    const openUserProfile = (u) => {
+      const otherId = String(u?.id || '').trim()
+      if (!otherId) return
+      showPeopleDropdown.value = false
+      searchTerm.value = ''
+      router.push({ name: 'user-profile', params: { id: otherId } })
+    }
+
+    const addFriendFromSearch = async (u) => {
+      const otherId = String(u?.id || '').trim()
+      if (!otherId) return
+      if (!session.value?.user?.id) {
+        showAuth.value = true
+        return
+      }
+      const state = friendshipState(otherId)
+      const action = state === 'incoming'
+        ? acceptFriendRequest(otherId)
+        : state === 'outgoing'
+          ? removeFriendOrRequest(otherId)
+          : sendFriendRequest(otherId)
+
+      const { error } = await action
+      if (error) return
+      await loadMyFriendsSet()
+      mutualFriendsCache.delete(otherId)
+      await runPeopleSearch()
     }
 
     const openMenu = () => {
@@ -329,10 +586,15 @@ export default {
     const saveProfile = async (form) => {
       saving.value = true
       try {
-        const { error } = await updateMyPublicUser(form)
+        const payload = {
+          ...form,
+          description: String(form?.description || '').trim().slice(0, 200) || null
+        }
+        const { data, error } = await updateMyPublicUser(payload)
         if (error) throw error
-        await loadSessionAndProfile()
-        showProfileEdit.value = false
+        if (data) {
+          profile.value = data
+        }
       } finally {
         saving.value = false
       }
@@ -355,8 +617,8 @@ export default {
       try {
         const { data, error } = await uploadAvatar(croppedFile)
         if (error) throw error
-        await updateMyPublicUser({ image_path: data?.publicUrl || data?.url || profile.value?.image_path })
-        await loadSessionAndProfile()
+        const { data: nextProfile } = await updateMyPublicUser({ image_path: data?.publicUrl || data?.url || profile.value?.image_path })
+        if (nextProfile) profile.value = nextProfile
       } finally {
         saving.value = false
         onAvatarCropClose()
@@ -378,6 +640,7 @@ export default {
 
     onMounted(async () => {
       window.addEventListener('open-profile', onOpenProfileEvent)
+      window.addEventListener('click', onGlobalClick)
       await loadCategories()
       await loadSessionAndProfile()
 
@@ -395,6 +658,9 @@ export default {
     })
 
     const teardown = () => {
+      window.removeEventListener('open-profile', onOpenProfileEvent)
+      window.removeEventListener('click', onGlobalClick)
+      if (searchDebounce) clearTimeout(searchDebounce)
       try {
         if (rtMessagesChannel?.unsubscribe) rtMessagesChannel.unsubscribe()
       } catch {
@@ -412,12 +678,39 @@ export default {
       }
     )
 
+    watch(
+      () => searchTerm.value,
+      () => {
+        if (searchDebounce) clearTimeout(searchDebounce)
+        searchDebounce = setTimeout(() => {
+          runPeopleSearch()
+        }, 220)
+      }
+    )
+
+
+    watch(
+      () => isMobileChatFocused.value,
+      (focused) => {
+        if (focused) closeMenu()
+      }
+    )
+
     return {
       telegramBotUsername,
       appVersion,
       versionLabel,
       versionTitle,
       searchTerm,
+      searchBoxRef,
+      peopleResults,
+      peopleSearchLoading,
+      showPeopleDropdown,
+      onSearchFocus,
+      messageUser,
+      openUserProfile,
+      addFriendFromSearch,
+      formatMutualFriendsText,
 
       showAuth,
       showProfileEdit,
@@ -456,7 +749,8 @@ export default {
       createBusinessEvent,
 
       unreadCount,
-      badgeText
+      badgeText,
+      showMobileMenuButton
     }
   }
 }
@@ -505,7 +799,7 @@ export default {
 .menu-button {
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: 50%;
   border: 1px solid #efefef;
   background: #fff;
   cursor: pointer;
@@ -548,10 +842,86 @@ export default {
 .search-input:focus {
   border-color: #e2e2e2;
 }
+.people-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(620px, 88vw);
+  max-height: min(68vh, 560px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #efefef;
+  border-radius: 16px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.14);
+  z-index: 45;
+  padding: 8px;
+}
+.people-dropdown-state {
+  padding: 14px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+.people-list {
+  display: grid;
+  gap: 8px;
+}
+.people-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #f1f1f1;
+}
+.people-avatar-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #efefef;
+  background: #f7f7f7;
+  display: grid;
+  place-items: center;
+}
+.people-avatar { width: 100%; height: 100%; object-fit: cover; }
+.people-avatar-ph { font-size: 18px; }
+.people-main { min-width: 0; }
+.people-name { font-weight: 900; }
+.people-username,
+.people-mutual {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.people-actions {
+  display: grid;
+  gap: 6px;
+}
+.people-btn {
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid #e8e8e8;
+  background: #fff;
+  padding: 0 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.people-btn-primary {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+.people-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .profile-button {
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: 50%;
   border: 1px solid #efefef;
   background: #fff;
   cursor: pointer;
@@ -560,9 +930,13 @@ export default {
   overflow: hidden;
 }
 .header-avatar {
-  width: 100%;
+  width: 135%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+  display: block;
+  transform: none;
 }
 .header-placeholder {
   font-size: 18px;
@@ -768,6 +1142,19 @@ export default {
 }
 
 /* ===== MOBILE BOTTOM BAR ===== */
+
+@media (max-width: 760px) {
+  .people-item {
+    grid-template-columns: auto 1fr;
+  }
+  .people-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr 1fr;
+  }
+  .search-input {
+    width: min(540px, 76vw);
+  }
+}
 @media (max-width: 980px) {
   .mobile-only {
     display: inline-flex !important;

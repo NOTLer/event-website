@@ -6,6 +6,17 @@
     </div>
 
     <section class="card">
+      <div class="h">Поиск по названию</div>
+      <input
+        class="input"
+        type="text"
+        :value="titleQuery"
+        placeholder="Например: Концерт"
+        @input="$emit('update:titleQuery', $event.target.value)"
+      />
+    </section>
+
+    <section class="card">
       <div class="h">Категории</div>
 
       <div class="tags">
@@ -115,6 +126,7 @@ export default {
   name: 'FiltersPanel',
   emits: [
     'reset',
+    'update:titleQuery',
     'update:selectedCategoryNames',
     'update:onlineOnly',
     'update:priceMode',
@@ -128,6 +140,7 @@ export default {
   ],
   props: {
     categories: { type: Array, default: () => [] },
+    titleQuery: { type: String, default: '' },
     selectedCategoryNames: { type: Array, default: () => [] },
     onlineOnly: { type: Boolean, default: false },
     priceMode: { type: String, default: 'all' },

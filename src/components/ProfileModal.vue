@@ -105,12 +105,21 @@
             <option value="female">Женский</option>
           </select>
         </label>
+
+        <label class="pm-field pm-field-full">
+          <span>О себе (до 200 символов)</span>
+          <textarea
+            v-model="form.description"
+            rows="4"
+            maxlength="200"
+            placeholder="Расскажите немного о себе"
+          ></textarea>
+          <small class="pm-help">Осталось {{ descriptionLeft }} символов</small>
+        </label>
       </div>
 
       <div class="pm-actions">
-        <button class="pm-btn" :disabled="saving" @click="$emit('save', form)">
-          {{ saving ? 'Сохранение...' : 'Сохранить' }}
-        </button>
+        <div class="pm-autosave-status">{{ saving ? 'Сохранение изменений…' : 'Изменения сохраняются автоматически' }}</div>
         <button class="pm-btn danger" @click="$emit('logout')">Выйти из аккаунта</button>
       </div>
     </div>
@@ -141,6 +150,7 @@
 
 <script>
 import { reactive, watch, ref, computed, onBeforeUnmount } from 'vue'
+import { toAvatarPublicUrl } from '../composables/useSupabase.js'
 
 export default {
   name: 'ProfileModal',
@@ -153,6 +163,9 @@ export default {
   },
   setup(props, { emit }) {
     const showBizInfo = ref(false)
+    const syncingFromProfile = ref(false)
+    const lastAutosavedSnapshot = ref('')
+    let autosaveTimer = null
 
     const form = reactive({
       username: '',
@@ -162,12 +175,14 @@ export default {
       phone: '',
       email: '',
       gender: '',
+      description: '',
       interests: []
     })
 
     watch(
       () => props.profile,
       (p) => {
+        syncingFromProfile.value = true
         form.username = p?.username || ''
         form.first_name = p?.first_name || ''
         form.last_name = p?.last_name || ''
@@ -175,10 +190,28 @@ export default {
         form.phone = p?.phone || ''
         form.email = p?.email || ''
         form.gender = p?.gender || ''
+        form.description = p?.description || ''
         form.interests = Array.isArray(p?.interests) ? [...p.interests] : []
+        lastAutosavedSnapshot.value = JSON.stringify(form)
+        syncingFromProfile.value = false
       },
       { immediate: true }
     )
+
+    watch(
+      () => JSON.stringify(form),
+      (snapshot) => {
+        if (syncingFromProfile.value) return
+        if (snapshot === lastAutosavedSnapshot.value) return
+        if (autosaveTimer) clearTimeout(autosaveTimer)
+        autosaveTimer = setTimeout(() => {
+          lastAutosavedSnapshot.value = snapshot
+          emit('save', { ...form })
+        }, 450)
+      }
+    )
+
+    const descriptionLeft = computed(() => Math.max(0, 200 - String(form.description || '').length))
 
     const isBusiness = computed(() => props.profile?.It_business === true)
 
@@ -220,9 +253,9 @@ export default {
     }
 
     const profileAvatarUrl = computed(() => {
-      const a = String(props.profile?.avatar_url || '').trim()
-      const b = String(props.profile?.image_path || '').trim()
-      return a || b
+      const custom = toAvatarPublicUrl(props.profile?.image_path)
+      const google = toAvatarPublicUrl(props.profile?.avatar_url)
+      return custom || google
     })
 
     const showLocalAvatar = computed(() => !!localAvatarUrl.value && !localErrored.value)
@@ -241,6 +274,7 @@ export default {
 
     onBeforeUnmount(() => {
       clearLocalAvatarPreview()
+      if (autosaveTimer) clearTimeout(autosaveTimer)
     })
 
     const avatarLetter = computed(() => {
@@ -269,7 +303,8 @@ export default {
       showProfileAvatar,
       onProfileImgError,
       avatarLetter,
-      avatarGradient
+      avatarGradient,
+      descriptionLeft
     }
   }
 }
@@ -394,6 +429,7 @@ export default {
 @media (max-width: 720px){ .pm-grid{ grid-template-columns: 1fr; } }
 
 .pm-field{ display:grid; gap: 6px; }
+.pm-field-full{ grid-column: 1 / -1; }
 .pm-field span{ font-size: 12px; opacity: .76; font-weight: 900; }
 .pm-field input, .pm-field select{
   border: 2px solid rgba(0,0,0,.10);
@@ -402,9 +438,20 @@ export default {
   outline:none;
   font-weight: 700;
 }
+.pm-field textarea{
+  border: 2px solid rgba(0,0,0,.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+  outline:none;
+  font-weight: 700;
+  resize: vertical;
+  min-height: 88px;
+  font-family: inherit;
+}
 .pm-help{ font-size: 11px; opacity: .7; font-weight: 700; margin-top: -2px; }
 
-.pm-actions{ margin-top: 14px; display:flex; gap: 10px; flex-wrap: wrap; }
+.pm-actions{ margin-top: 14px; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
+.pm-autosave-status{ font-size:12px; opacity:.75; font-weight:800; margin-right:auto; }
 
 .pm-btn{
   border:none;

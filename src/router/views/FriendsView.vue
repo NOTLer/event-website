@@ -5,13 +5,6 @@
         <div class="h-title">Друзья</div>
 
         <div class="h-actions">
-          <input
-            v-model="userQuery"
-            class="user-search"
-            type="text"
-            placeholder="Найти пользователя по username или ФИО"
-            @input="onUserQueryInput"
-          />
           <button class="btn" @click="reloadAll" :disabled="loading">
             {{ loading ? '...' : 'Обновить' }}
           </button>
@@ -33,7 +26,10 @@
             <div v-else class="list">
               <div v-for="r in incomingRequests" :key="r.other.id" class="row">
                 <div class="u">
-                  <div class="ava">{{ letter(r.other) }}</div>
+                  <div class="ava">
+                    <img v-if="avatar(r.other)" :src="avatar(r.other)" alt="avatar" @error="clearAvatar(r.other)" />
+                    <span v-else>{{ letter(r.other) }}</span>
+                  </div>
                   <div class="meta">
                     <div class="name">{{ displayName(r.other) }}</div>
                     <div class="sub">@{{ r.other.username || '—' }}</div>
@@ -55,7 +51,10 @@
             <div v-else class="list">
               <div v-for="u in friends" :key="u.id" class="row">
                 <div class="u">
-                  <div class="ava">{{ letter(u) }}</div>
+                  <div class="ava">
+                    <img v-if="avatar(u)" :src="avatar(u)" alt="avatar" @error="clearAvatar(u)" />
+                    <span v-else>{{ letter(u) }}</span>
+                  </div>
                   <div class="meta">
                     <div class="name">{{ displayName(u) }}</div>
                     <div class="sub">@{{ u.username || '—' }}</div>
@@ -63,9 +62,10 @@
                 </div>
 
                 <div class="actions">
+                  <button class="btn small ghost" @click="openUserProfile(u.id)">Профиль</button>
                   <button class="btn small ghost" @click="goChat(u.id)">Написать</button>
 
-                  <button class="btn small" type="button" @click.stop="toggleMenu(u.id)" aria-label="Меню">⋯</button>
+                  <button class="btn small more-btn" type="button" @click.stop="toggleMenu(u.id)" aria-label="Меню">⋯</button>
 
                   <div v-if="openMenuId === u.id" class="menu" @click.stop>
                     <button class="menu-item" type="button" @click="openFriendsOf(u.id)">Посмотреть друзей</button>
@@ -80,7 +80,7 @@
           </div>
         </aside>
 
-        <!-- RIGHT: поиск -->
+        <!-- RIGHT: предложка -->
         <main class="right">
 
           <div v-if="viewingFriendsOfId" class="block">
@@ -95,7 +95,10 @@
             <div v-else class="list">
               <div v-for="fu in friendsOfList" :key="fu.id" class="row">
                 <div class="u">
-                  <div class="ava">{{ letter(fu) }}</div>
+                  <div class="ava">
+                    <img v-if="avatar(fu)" :src="avatar(fu)" alt="avatar" @error="clearAvatar(fu)" />
+                    <span v-else>{{ letter(fu) }}</span>
+                  </div>
                   <div class="meta">
                     <div class="name">{{ displayName(fu) }}</div>
                     <div class="sub">@{{ fu.username || '—' }}</div>
@@ -103,60 +106,41 @@
                 </div>
                 <div class="actions">
                   <div v-if="isMe(fu.id)" class="self-badge">Это вы</div>
-                  <button v-else class="btn small ghost" @click="goChat(fu.id)">Написать</button>
+                  <template v-else>
+                    <button class="btn small ghost" @click="openUserProfile(fu.id)">Профиль</button>
+                    <button class="btn small ghost" @click="goChat(fu.id)">Написать</button>
+                  </template>
                 </div>
               </div>
             </div>
           </div>
-          <div class="block">
-            <div class="b-title">Поиск пользователей</div>
 
-            <div v-if="!userQuery.trim()" class="muted">
-              Введи username (без @) или ФИО, чтобы найти пользователя.
+          <div class="block">
+            <div class="b-title">Предложка знакомых друзей</div>
+
+            <div v-if="suggestionsLoading" class="muted">Подбираем знакомых друзей…</div>
+
+            <div v-else-if="suggestedFriends.length === 0" class="muted">
+              Пока нет рекомендаций. Добавь больше друзей, чтобы увидеть знакомых друзей.
             </div>
 
-            <div v-else-if="searchedUsers.length === 0" class="muted">Ничего не найдено</div>
-
             <div v-else class="list">
-              <div v-for="u in searchedUsers" :key="u.id" class="row">
+              <div v-for="u in suggestedFriends" :key="u.id" class="row">
                 <div class="u">
-                  <div class="ava">{{ letter(u) }}</div>
+                  <div class="ava">
+                    <img v-if="avatar(u)" :src="avatar(u)" alt="avatar" @error="clearAvatar(u)" />
+                    <span v-else>{{ letter(u) }}</span>
+                  </div>
                   <div class="meta">
                     <div class="name">{{ displayName(u) }}</div>
-                    <div class="sub">@{{ u.username || '—' }}</div>
+                    <div class="sub">@{{ u.username || '—' }} · {{ u.mutualCount }} общих друзей</div>
                   </div>
                 </div>
 
                 <div class="actions">
+                  <button class="btn small ghost" @click="openUserProfile(u.id)">Профиль</button>
                   <button class="btn small ghost" @click="goChat(u.id)">Написать</button>
-
-                  <button
-                    v-if="relationOf(u.id) === 'friend'"
-                    class="btn small"
-                    @click="removeFriendOrReq(u.id)"
-                  >
-                    Удалить
-                  </button>
-
-                  <button
-                    v-else-if="relationOf(u.id) === 'incoming'"
-                    class="btn small"
-                    @click="accept(u.id)"
-                  >
-                    Принять
-                  </button>
-
-                  <button
-                    v-else-if="relationOf(u.id) === 'outgoing'"
-                    class="btn small ghost"
-                    @click="removeFriendOrReq(u.id)"
-                  >
-                    Отменить
-                  </button>
-
-                  <button v-else class="btn small" @click="addFriend(u.id)">
-                    В друзья
-                  </button>
+                  <button class="btn small" @click="addFriend(u.id)">В друзья</button>
                 </div>
               </div>
             </div>
@@ -193,14 +177,6 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSupabase, supabase } from '@/composables/useSupabase'
 
-const debounce = (fn, ms = 250) => {
-  let t = null
-  return (...args) => {
-    clearTimeout(t)
-    t = setTimeout(() => fn(...args), ms)
-  }
-}
-
 export default {
   name: 'FriendsView',
   setup() {
@@ -209,7 +185,6 @@ export default {
     const {
       getUser,
       getMyPublicUser,
-      searchUsers,
       getPublicUserById,
       getFriendships,
       sendFriendRequest,
@@ -222,13 +197,12 @@ export default {
     const needAuth = ref(false)
     const myId = ref('')
 
-    const userQuery = ref('')
-    const searchedUsers = ref([])
-
     const friendships = ref([])
 
     const friends = ref([])
     const incomingRequests = ref([])
+    const suggestionsLoading = ref(false)
+    const suggestedFriends = ref([])
 
     // UI menu (⋯) + confirm delete
     const openMenuId = ref('')
@@ -253,6 +227,20 @@ export default {
     }
 
     const letter = (u) => (displayName(u)[0] || 'П').toUpperCase()
+
+    const normalizeStoragePublicUrl = (url) => {
+      if (!url || typeof url !== 'string') return ''
+      const u = url.trim()
+      if (!u) return ''
+      if (u.includes('/storage/v1/object/public/')) return u
+      if (u.includes('/storage/v1/object/')) return u.replace('/storage/v1/object/', '/storage/v1/object/public/')
+      return u
+    }
+
+    const avatar = (u) => normalizeStoragePublicUrl(u?.image_path || u?.avatar_url || u?.avatar || '')
+    const clearAvatar = (u) => {
+      if (u && typeof u === 'object') u.image_path = ''
+    }
 
     const rebuildFromFriendships = async () => {
       const list = friendships.value || []
@@ -296,7 +284,6 @@ export default {
       incomingRequests.value = incomingUsers.map((u) => ({ other: u }))
     }
 
-    const relationOf = (userId) => relationIndex.value.get(userId) || 'none'
     const isMe = (userId) => String(userId || '') === String(myId.value || '')
 
     const reloadFriendships = async () => {
@@ -305,24 +292,63 @@ export default {
       await rebuildFromFriendships()
     }
 
-    const doSearchUsers = async () => {
-      const q = userQuery.value.trim()
-      if (!q) {
-        searchedUsers.value = []
-        return
+    const loadSuggestedFriends = async () => {
+      suggestionsLoading.value = true
+      try {
+        const acceptedRows = (friendships.value || []).filter((x) => x.status === 'accepted')
+        const myFriendIds = acceptedRows.map((x) => (x.requester_id === myId.value ? x.addressee_id : x.requester_id))
+
+        if (myFriendIds.length === 0) {
+          suggestedFriends.value = []
+          return
+        }
+
+        const { data, error: e1 } = await supabase
+          .from('friendships')
+          .select('*')
+          .eq('status', 'accepted')
+          .or(`requester_id.in.(${myFriendIds.join(',')}),addressee_id.in.(${myFriendIds.join(',')})`)
+        if (e1) throw e1
+
+        const relationMap = relationIndex.value
+        const byCandidate = new Map()
+        for (const row of data || []) {
+          const a = row.requester_id
+          const b = row.addressee_id
+          const aIsMineFriend = myFriendIds.includes(a)
+          const bIsMineFriend = myFriendIds.includes(b)
+          if (aIsMineFriend === bIsMineFriend) continue
+
+          const candidateId = aIsMineFriend ? b : a
+          if (!candidateId || candidateId === myId.value) continue
+          if (relationMap.get(candidateId)) continue
+
+          byCandidate.set(candidateId, (byCandidate.get(candidateId) || 0) + 1)
+        }
+
+        const sortedIds = [...byCandidate.entries()]
+          .sort((x, y) => y[1] - x[1])
+          .slice(0, 30)
+
+        const out = []
+        for (const [id, mutualCount] of sortedIds) {
+          const { data: u } = await getPublicUserById(id)
+          if (u?.id) out.push({ ...u, mutualCount })
+        }
+        suggestedFriends.value = out
+      } catch {
+        suggestedFriends.value = []
+      } finally {
+        suggestionsLoading.value = false
       }
-      const { data } = await searchUsers(q, 30)
-      // не показываем себя
-      searchedUsers.value = (data || []).filter((x) => x.id !== myId.value)
     }
-    const onUserQueryInput = debounce(doSearchUsers, 250)
 
     const addFriend = async (otherId) => {
       error.value = ''
       try {
         await sendFriendRequest(otherId)
         await reloadFriendships()
-        await doSearchUsers()
+        await loadSuggestedFriends()
       } catch (e) {
         error.value = String(e?.message || e)
       }
@@ -333,7 +359,7 @@ export default {
       try {
         await acceptFriendRequest(otherId)
         await reloadFriendships()
-        await doSearchUsers()
+        await loadSuggestedFriends()
       } catch (e) {
         error.value = String(e?.message || e)
       }
@@ -344,7 +370,7 @@ export default {
       try {
         await removeFriendOrRequest(otherId)
         await reloadFriendships()
-        await doSearchUsers()
+        await loadSuggestedFriends()
       } catch (e) {
         error.value = String(e?.message || e)
       }
@@ -426,6 +452,11 @@ export default {
       router.push({ path: '/messages', query: { with: otherId } })
     }
 
+    const openUserProfile = (otherId) => {
+      if (!otherId) return
+      router.push({ name: 'user-profile', params: { id: otherId } })
+    }
+
     const reloadAll = async () => {
       loading.value = true
       error.value = ''
@@ -442,7 +473,7 @@ export default {
         await getMyPublicUser()
 
         await reloadFriendships()
-        await doSearchUsers()
+        await loadSuggestedFriends()
       } catch (e) {
         error.value = String(e?.message || e)
       } finally {
@@ -466,12 +497,10 @@ return {
       needAuth,
       myId,
 
-      userQuery,
-      searchedUsers,
-      onUserQueryInput,
-
       friends,
       incomingRequests,
+      suggestionsLoading,
+      suggestedFriends,
 
       openMenuId,
       deleteCandidate,
@@ -487,14 +516,16 @@ return {
 
       displayName,
       letter,
+      avatar,
+      clearAvatar,
 
-      relationOf,
       isMe,
 
       addFriend,
       accept,
       removeFriendOrReq,
       goChat,
+      openUserProfile,
 
       reloadAll
     }
@@ -512,17 +543,9 @@ return {
 }
 .h-title{ font-weight: 900; font-size: 18px; }
 .h-actions{ display:flex; gap: 10px; align-items:center; flex: 1 1 auto; justify-content:flex-end; }
-.user-search{
-  width: min(520px, 100%);
-  border: 1px solid #efefef;
-  border-radius: 14px;
-  padding: 10px 12px;
-  outline: none;
-}
-
 .grid{
   display:grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: 3fr 1fr;
   gap: 12px;
 }
 @media (max-width: 980px){
@@ -561,11 +584,18 @@ return {
   background: #f2f2f2;
   font-weight: 900;
   flex: 0 0 auto;
+  overflow: hidden;
+}
+.ava img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
 }
 .meta{ min-width: 0; }
 .name{ font-weight: 900; font-size: 13px; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
 .sub{ font-size: 12px; opacity: .75; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
-.actions{ display:flex; gap: 8px; flex-wrap: wrap; justify-content:flex-end; }
+.actions{ display:flex; gap: 8px; flex-wrap: nowrap; justify-content:flex-end; align-items:center; }
 .self-badge{
   font-size: 12px;
   font-weight: 900;
@@ -584,7 +614,8 @@ return {
   font-weight: 900;
   cursor:pointer;
 }
-.btn.small{ padding: 8px 10px; border-radius: 12px; font-size: 12px; }
+.btn.small{ padding: 8px 12px; border-radius: 12px; font-size: 12px; min-height: 36px; min-width: 98px; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
+.more-btn{ min-width: 28px; width: 28px; min-height: 32px; padding: 0; font-size: 16px; }
 .btn.ghost{
   background:#fafafa;
   color:#14181b;
@@ -655,4 +686,11 @@ return {
 .confirm-title{ font-weight: 900; margin-bottom: 8px; }
 .confirm-text{ font-size: 13px; opacity: .82; margin-bottom: 12px; }
 .confirm-actions{ display:flex; justify-content:flex-end; gap: 8px; }
+
+@media (max-width: 760px){
+  .row{ align-items:flex-start; }
+  .actions{ width: 100%; justify-content:flex-end; flex-wrap: wrap; }
+  .actions .btn.small:not(.more-btn){ min-width: 88px; }
+}
+
 </style>
