@@ -119,9 +119,7 @@
       </div>
 
       <div class="pm-actions">
-        <button class="pm-btn" :disabled="saving" @click="$emit('save', form)">
-          {{ saving ? 'Сохранение...' : 'Сохранить' }}
-        </button>
+        <div class="pm-autosave-status">{{ saving ? 'Сохранение изменений…' : 'Изменения сохраняются автоматически' }}</div>
         <button class="pm-btn danger" @click="$emit('logout')">Выйти из аккаунта</button>
       </div>
     </div>
@@ -254,9 +252,9 @@ export default {
     }
 
     const profileAvatarUrl = computed(() => {
-      const a = String(props.profile?.avatar_url || '').trim()
-      const b = String(props.profile?.image_path || '').trim()
-      return a || b
+      const custom = String(props.profile?.image_path || '').trim()
+      const google = String(props.profile?.avatar_url || '').trim()
+      return custom || google
     })
 
     const showLocalAvatar = computed(() => !!localAvatarUrl.value && !localErrored.value)
@@ -451,7 +449,8 @@ export default {
 }
 .pm-help{ font-size: 11px; opacity: .7; font-weight: 700; margin-top: -2px; }
 
-.pm-actions{ margin-top: 14px; display:flex; gap: 10px; flex-wrap: wrap; }
+.pm-actions{ margin-top: 14px; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
+.pm-autosave-status{ font-size:12px; opacity:.75; font-weight:800; margin-right:auto; }
 
 .pm-btn{
   border:none;
