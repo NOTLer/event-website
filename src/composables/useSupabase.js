@@ -575,7 +575,7 @@ export const useSupabase = () => {
     const take = Math.max(1, Number(limit) || 250)
     const { data: conversations, error: conversationsError } = await supabase
       .from('conversations')
-      .select('id,title,created_at,updated_at,conversation_participants!inner(user_id)')
+      .select('*,conversation_participants!inner(user_id)')
       .eq('conversation_participants.user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(take)
@@ -587,7 +587,8 @@ export const useSupabase = () => {
         id: row.id,
         title: row.title,
         created_at: row.created_at,
-        updated_at: row.updated_at
+        updated_at: row.updated_at,
+        avatar: normalizeStoragePublicUrl(row?.avatar_url || row?.image_path || row?.avatar || '')
       })),
       error: null
     }
