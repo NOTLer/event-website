@@ -113,11 +113,24 @@
             <TransitionGroup v-else name="msg-list" tag="div" class="chat-msgs">
               <div
                 v-for="m in messages"
-                :key="m.id"
+                :key="m._key || `${m._kind || 'message'}:${m.id}`"
                 class="msg"
-                :class="{ mine: m.sender_id === myId, their: m.sender_id !== myId, 'menu-open': messageMenuId === String(m.id) }"
+                :class="{ mine: m.sender_id === myId, their: m.sender_id !== myId, system: m._kind === 'system_event', 'menu-open': messageMenuId === String(m.id) }"
               >
-                <div class="msg-bubble" @click.stop @contextmenu.prevent.stop="openMessageMenuContext($event, m.id)">
+                <div
+                  v-if="m._kind === 'system_event'"
+                  class="msg-system"
+                >
+                  <div class="msg-system-text">{{ m.body }}</div>
+                  <div class="msg-system-time">{{ formatTime(m.created_at) }}</div>
+                </div>
+
+                <div
+                  v-else
+                  class="msg-bubble"
+                  @click.stop
+                  @contextmenu.prevent.stop="openMessageMenuContext($event, m.id)"
+                >
 
                   <div v-if="messageMenuId === String(m.id)" class="msg-menu" @click.stop>
                     <div class="msg-menu-stickers">
@@ -495,8 +508,43 @@ export default {
 
     let rtChannel = null
     let reactionsChannel = null
+    let systemEventsChannel = null
 
     const reactionOptions = REACTION_OPTIONS
+
+    const mapSystemEventToMessage = (event) => ({
+      id: `se:${String(event?.id || '')}`,
+      _key: `se:${String(event?.id || '')}`,
+      _kind: 'system_event',
+      sender_id: null,
+      receiver_id: null,
+      conversation_id: String(event?.conversation_id || ''),
+      body: String(event?.body || '').trim(),
+      created_at: event?.created_at || new Date().toISOString(),
+      read_at: null,
+      actor_id: String(event?.actor_id || ''),
+      event_type: String(event?.event_type || ''),
+      meta: event?.meta || null
+    })
+
+    const mergeTimeline = ({ messagesRows = [], eventsRows = [] } = {}) => {
+      const chatMessages = (messagesRows || []).map((row) => ({
+        ...row,
+        _kind: 'message',
+        _key: `m:${String(row?.id || '')}`
+      }))
+      const systemEvents = (eventsRows || []).map((row) => mapSystemEventToMessage(row))
+
+      return [...chatMessages, ...systemEvents].sort((a, b) => {
+        const ta = new Date(a?.created_at || 0).getTime()
+        const tb = new Date(b?.created_at || 0).getTime()
+        if (ta !== tb) return ta - tb
+
+        const ak = String(a?._key || '')
+        const bk = String(b?._key || '')
+        return ak.localeCompare(bk)
+      })
+    }
 
     const calcUnreadTotal = () => {
       let total = 0
@@ -1161,12 +1209,27 @@ export default {
         if (error) throw error
 
         const rows = (data || []).slice().reverse()
-        if (rows.length === 0) {
+
+        let systemRows = []
+        if (selectedConversationId) {
+          const { data: eventsData, error: eventsError } = await supabase
+            .from('conversation_system_events')
+            .select('*')
+            .eq('conversation_id', selectedConversationId)
+            .lt('created_at', oldestLoadedAt.value)
+            .order('created_at', { ascending: false })
+            .limit(80)
+          if (eventsError) throw eventsError
+          systemRows = (eventsData || []).slice().reverse()
+        }
+
+        const timelineRows = mergeTimeline({ messagesRows: rows, eventsRows: systemRows })
+        if (timelineRows.length === 0) {
           convHasMore.value = false
           return
         }
 
-        const dedup = rows.filter((m) => !messages.value.some((x) => x?.id === m?.id))
+        const dedup = timelineRows.filter((m) => !messages.value.some((x) => String(x?._key || x?.id || '') === String(m?._key || m?.id || '')))
         if (dedup.length === 0) {
           convHasMore.value = false
           return
@@ -1225,9 +1288,23 @@ export default {
         if (error) throw error
 
         const rows = (data || []).slice().reverse()
-        messages.value = rows
-        oldestLoadedAt.value = String(rows?.[0]?.created_at || '')
-        convHasMore.value = rows.length >= 80
+
+        let systemRows = []
+        if (selectedConversationId) {
+          const { data: eventsData, error: eventsError } = await supabase
+            .from('conversation_system_events')
+            .select('*')
+            .eq('conversation_id', selectedConversationId)
+            .order('created_at', { ascending: false })
+            .limit(80)
+          if (eventsError) throw eventsError
+          systemRows = (eventsData || []).slice().reverse()
+        }
+
+        const timelineRows = mergeTimeline({ messagesRows: rows, eventsRows: systemRows })
+        messages.value = timelineRows
+        oldestLoadedAt.value = String(timelineRows?.[0]?.created_at || '')
+        convHasMore.value = timelineRows.length >= 80
         showScrollDown.value = false
 
         await refreshReactionsForCurrentConversation()
@@ -1515,7 +1592,11 @@ export default {
         let t = idx !== -1 ? threads.value[idx] : null
 
         if (!t) {
-          const { data: conv } = await getConversation(conversationId)
+          const { data: conv } = await supabase
+            .from('conversations')
+            .select('title')
+            .eq('id', conversationId)
+            .maybeSingle()
           t = {
             otherUserId: threadId,
             lastMessage: m,
@@ -1627,6 +1708,37 @@ export default {
             const hasMessage = messages.value.some((m) => String(m?.id || '') === messageId)
             if (!hasMessage) return
             await refreshReactionsForCurrentConversation()
+          })
+          .subscribe()
+
+        systemEventsChannel = supabase
+          .channel(`rt:conversation_system_events:${user.id}`)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_system_events' }, async (payload) => {
+            const row = payload?.new
+            const conversationId = String(row?.conversation_id || '').trim()
+            if (!conversationId) return
+
+            const threadId = `${CONVERSATION_THREAD_PREFIX}${conversationId}`
+            const idx = threads.value.findIndex((t) => t.otherUserId === threadId)
+            if (idx === -1) return
+
+            const updated = {
+              ...threads.value[idx],
+              lastMessage: { body: String(row?.body || ''), created_at: row?.created_at || new Date().toISOString() }
+            }
+            const copy = [...threads.value]
+            copy.splice(idx, 1)
+            threads.value = [updated, ...copy]
+
+            if (selectedOtherId.value !== threadId) return
+
+            const systemMsg = mapSystemEventToMessage(row)
+            const exists = messages.value.some((m) => String(m?._key || m?.id || '') === String(systemMsg._key || systemMsg.id || ''))
+            if (exists) return
+
+            messages.value = [...messages.value, systemMsg]
+            if (isAtBottom()) await scrollBottom()
+            else showScrollDown.value = true
           })
           .subscribe()
       } catch {
@@ -1751,6 +1863,13 @@ export default {
         // ignore
       }
       reactionsChannel = null
+
+      try {
+        if (systemEventsChannel) supabase.removeChannel(systemEventsChannel)
+      } catch {
+        // ignore
+      }
+      systemEventsChannel = null
 
       teardownTypingRealtime()
       stopTypingPresence()
@@ -2313,6 +2432,34 @@ export default {
 .msg.mine,
 .msg.their {
   justify-content: flex-start;
+}
+
+.msg.system {
+  justify-content: center;
+}
+
+.msg-system {
+  max-width: min(560px, 90%);
+  border-radius: 999px;
+  border: 1px solid #dde6ff;
+  background: #f5f8ff;
+  color: #42506b;
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.msg-system-text {
+  text-align: center;
+}
+
+.msg-system-time {
+  opacity: 0.68;
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .msg-bubble {

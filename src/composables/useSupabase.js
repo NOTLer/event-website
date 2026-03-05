@@ -627,11 +627,18 @@ export const useSupabase = () => {
       'Неизвестный пользователь'
     )
 
-    const systemMessage = `Беседа создана пользователем ${creatorName}`
-    const { error: messageError } = await supabase.from('messages').insert([
-      { conversation_id: conversation.id, sender_id: user.id, body: systemMessage }
+    const conversationTitle = String(conversation?.title || '').trim() || `#${conversation.id}`
+    const systemMessage = `Беседа «${conversationTitle}» создана ${creatorName}`
+    const { error: eventError } = await supabase.from('conversation_system_events').insert([
+      {
+        conversation_id: conversation.id,
+        actor_id: user.id,
+        event_type: 'created',
+        body: systemMessage,
+        meta: { title: conversationTitle }
+      }
     ])
-    if (messageError) return { data: null, error: messageError }
+    if (eventError) return { data: null, error: eventError }
 
     return { data: conversation, error: null }
   }
