@@ -2958,6 +2958,7 @@ export default {
       avatarLetter,
       showAvatarForMessage,
       showSenderName,
+      isConversationThreadId,
 
       parseBody,
       messageAttachment,

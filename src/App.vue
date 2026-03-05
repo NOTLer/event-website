@@ -923,7 +923,7 @@ export default {
 .profile-button {
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: 50%;
   border: 1px solid #efefef;
   background: #fff;
   cursor: pointer;
