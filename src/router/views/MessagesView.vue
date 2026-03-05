@@ -112,11 +112,20 @@
 
             <TransitionGroup v-else name="msg-list" tag="div" class="chat-msgs">
               <div
-                v-for="m in messages"
+                v-for="(m, msgIndex) in messages"
                 :key="m._key || `${m._kind || 'message'}:${m.id}`"
                 class="msg"
                 :class="{ mine: m.sender_id === myId, their: m.sender_id !== myId, system: m._kind === 'system_event', 'menu-open': messageMenuId === String(m.id) }"
               >
+                <div v-if="m._kind !== 'system_event'" class="msg-side">
+                  <div v-if="showSenderName(m, messages, msgIndex)" class="msg-sender-name">{{ senderTitle(m.sender_id) }}</div>
+                  <div v-if="showAvatarForMessage(m, messages, msgIndex)" class="msg-avatar-wrap">
+                    <img v-if="senderAvatar(m.sender_id)" :src="senderAvatar(m.sender_id)" class="msg-avatar" alt="avatar" />
+                    <div v-else class="msg-avatar-ph">👤</div>
+                  </div>
+                  <div v-else class="msg-avatar-spacer"></div>
+                </div>
+
                 <div
                   v-if="m._kind === 'system_event'"
                   class="msg-system"
@@ -738,6 +747,7 @@ export default {
     const showRolePermissionsPanel = ref(false)
 
     const peer = ref(null)
+    const senderProfiles = ref({})
     const messages = ref([])
     const reactionsByMessage = ref({})
     const messageMenuId = ref('')
@@ -1273,6 +1283,60 @@ export default {
       return 'Пользователь'
     }
 
+
+    const cacheSenderProfile = (userId, data) => {
+      const uid = String(userId || '').trim()
+      if (!uid) return
+      const next = {
+        title: safeTitleFromUser(data),
+        avatar: normalizeStoragePublicUrl(data?.image_path || data?.avatar_url || '')
+      }
+      senderProfiles.value = { ...senderProfiles.value, [uid]: next }
+    }
+
+    const ensureSenderProfiles = async (userIds = []) => {
+      const uniqueIds = [...new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+      if (uniqueIds.length === 0) return
+      await Promise.all(uniqueIds.map(async (uid) => {
+        if (senderProfiles.value[uid]) return
+        const { data } = await getPublicUserById(uid)
+        if (data) cacheSenderProfile(uid, data)
+      }))
+    }
+
+    const senderTitle = (userId) => {
+      const uid = String(userId || '').trim()
+      if (!uid) return 'Пользователь'
+      if (senderProfiles.value[uid]?.title) return senderProfiles.value[uid].title
+      if (uid === myId.value) return 'Вы'
+      if (!isConversationThreadId(selectedOtherId.value) && uid === String(peer.value?.id || '')) return String(peer.value?.title || 'Собеседник')
+      return 'Пользователь'
+    }
+
+    const senderAvatar = (userId) => {
+      const uid = String(userId || '').trim()
+      if (!uid) return ''
+      if (senderProfiles.value[uid]?.avatar) return senderProfiles.value[uid].avatar
+      if (!isConversationThreadId(selectedOtherId.value) && uid === String(peer.value?.id || '')) return String(peer.value?.avatar || '')
+      return ''
+    }
+
+    const sameSender = (a, b) => String(a?.sender_id || '') === String(b?.sender_id || '')
+
+    const showAvatarForMessage = (message, list, index) => {
+      if (!message || message._kind === 'system_event') return false
+      const next = list[index + 1]
+      if (!next || next._kind === 'system_event') return true
+      return !sameSender(message, next)
+    }
+
+    const showSenderName = (message, list, index) => {
+      if (!isConversationThreadId(selectedOtherId.value) || !message || message._kind === 'system_event') return false
+      const prev = list[index - 1]
+      if (!prev || prev._kind === 'system_event') return true
+      return !sameSender(message, prev)
+    }
+
     const groupReactions = (rows) => {
       const grouped = {}
       for (const row of (rows || [])) {
@@ -1605,6 +1669,7 @@ export default {
         }
         authRequired.value = false
         myId.value = user.id
+        cacheSenderProfile(user.id, user)
 
         const { data, error } = await getInboxThreads(60)
         if (error) {
@@ -1809,6 +1874,7 @@ export default {
         }
 
         messages.value = [...dedup, ...messages.value]
+        await ensureSenderProfiles(dedup.map((row) => row?.sender_id))
         oldestLoadedAt.value = String(messages.value?.[0]?.created_at || oldestLoadedAt.value || '')
 
         await nextTick()
@@ -1876,6 +1942,7 @@ export default {
 
         const timelineRows = mergeTimeline({ messagesRows: rows, eventsRows: systemRows })
         messages.value = timelineRows
+        await ensureSenderProfiles(timelineRows.map((row) => row?.sender_id))
         oldestLoadedAt.value = String(timelineRows?.[0]?.created_at || '')
         convHasMore.value = timelineRows.length >= 80
         showScrollDown.value = false
@@ -2701,6 +2768,10 @@ export default {
       deleteFromMenu,
       reactionAuthorsText,
       setMessageReaction,
+      senderTitle,
+      senderAvatar,
+      showAvatarForMessage,
+      showSenderName,
 
       parseBody,
       threadPreview,
@@ -3132,7 +3203,53 @@ export default {
 }
 .msg {
   display: flex;
+  align-items: flex-end;
+  gap: 8px;
   transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.msg-side {
+  width: 42px;
+  flex: 0 0 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+}
+
+.msg-sender-name {
+  width: max-content;
+  max-width: 220px;
+  margin-bottom: 4px;
+  transform: translateX(58px);
+  font-size: 12px;
+  font-weight: 800;
+  color: #55607a;
+}
+
+.msg-avatar-wrap,
+.msg-avatar-spacer {
+  width: 32px;
+  height: 32px;
+}
+
+.msg-avatar-wrap {
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #dfe6ff;
+  background: #f5f7ff;
+  display: grid;
+  place-items: center;
+}
+
+.msg-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.msg-avatar-ph {
+  font-size: 14px;
 }
 .msg.mine,
 .msg.their {
@@ -3141,6 +3258,10 @@ export default {
 
 .msg.system {
   justify-content: center;
+}
+
+.msg.system .msg-side {
+  display: none;
 }
 
 .msg-system {
