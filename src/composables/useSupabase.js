@@ -703,6 +703,44 @@ export const useSupabase = () => {
     return { data: data ?? null, error }
   }
 
+  const leaveConversation = async (conversationId) => {
+    const { user } = await getUser()
+    if (!user?.id) return { data: null, error: new Error('Not authorized') }
+
+    const cid = String(conversationId || '').trim()
+    if (!cid) return { data: null, error: new Error('No conversationId') }
+
+    const { data, error } = await supabase
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', cid)
+      .eq('user_id', user.id)
+      .select('id')
+
+    if (!error && (!data || data.length === 0)) {
+      return { data: null, error: new Error('You are not a participant of this conversation') }
+    }
+
+    return { data: data ?? null, error }
+  }
+
+  const deleteConversationById = async (conversationId) => {
+    const cid = String(conversationId || '').trim()
+    if (!cid) return { data: null, error: new Error('No conversationId') }
+
+    const { data, error } = await supabase
+      .from('conversations')
+      .delete()
+      .eq('id', cid)
+      .select('id')
+
+    if (!error && (!data || data.length === 0)) {
+      return { data: null, error: new Error('Conversation was not deleted in database') }
+    }
+
+    return { data: data ?? null, error }
+  }
+
   // ✅ NEW: messages inside conversation
   const getConversationMessages = async (conversationId, limit = 200) => {
     const { user } = await getUser()
@@ -886,6 +924,8 @@ export const useSupabase = () => {
     getConversationParticipants,
     updateConversationParticipantRole,
     updateConversationDetails,
+    leaveConversation,
+    deleteConversationById,
     getConversationMessages,
     sendMessageToConversation,
 

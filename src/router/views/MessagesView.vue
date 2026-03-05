@@ -420,6 +420,13 @@
           :disabled="conversationSaveLoading"
           @click="saveConversationSettings"
         >Сохранить настройки</button>
+
+        <button
+          class="chat-send conv-create-btn conv-danger-btn"
+          type="button"
+          :disabled="conversationActionLoading"
+          @click="handleConversationExitOrDelete"
+        >{{ isConversationOwner ? 'Удалить беседу' : 'Выйти из беседы' }}</button>
       </template>
     </div>
   </div>
@@ -583,6 +590,8 @@ export default {
       getConversationParticipants,
       updateConversationParticipantRole,
       updateConversationDetails,
+      leaveConversation,
+      deleteConversationById,
       getConversation,
       sendMessage,
       deleteMessage,
@@ -621,6 +630,7 @@ export default {
     const rolePermissions = ref({})
     const roleSaving = ref(false)
     const conversationSaveLoading = ref(false)
+    const conversationActionLoading = ref(false)
     const addParticipantsSearch = ref('')
     const selectedParticipantsToAdd = ref([])
 
@@ -955,6 +965,39 @@ export default {
         alert(String(e?.message || 'Не удалось сохранить настройки беседы'))
       } finally {
         conversationSaveLoading.value = false
+      }
+    }
+
+    const handleConversationExitOrDelete = async () => {
+      if (!selectedConversationId.value) return
+
+      const confirmText = isConversationOwner.value
+        ? 'Удалить беседу для всех участников?'
+        : 'Выйти из беседы?'
+
+      if (!window.confirm(confirmText)) return
+
+      conversationActionLoading.value = true
+      try {
+        if (isConversationOwner.value) {
+          const { error } = await deleteConversationById(selectedConversationId.value)
+          if (error) throw error
+        } else {
+          const { error } = await leaveConversation(selectedConversationId.value)
+          if (error) throw error
+        }
+
+        const threadId = String(selectedOtherId.value || '')
+        if (threadId) {
+          threads.value = threads.value.filter((t) => t.otherUserId !== threadId)
+        }
+        closeConversationSettings()
+        await closeThread()
+        await reload()
+      } catch (e) {
+        alert(String(e?.message || (isConversationOwner.value ? 'Не удалось удалить беседу' : 'Не удалось выйти из беседы')))
+      } finally {
+        conversationActionLoading.value = false
       }
     }
 
@@ -2398,6 +2441,7 @@ export default {
       friendsForAddFiltered,
       roleSaving,
       conversationSaveLoading,
+      conversationActionLoading,
 
       chatBodyRef,
       chatInputRef,
@@ -2432,6 +2476,7 @@ export default {
       permissionLabel,
       toggleRolePermission,
       saveConversationSettings,
+      handleConversationExitOrDelete,
       removeMessage,
       getMessageReactions,
       myReactionByMessage,
@@ -3297,6 +3342,15 @@ export default {
 .conv-friend-name { font-weight: 800; font-size: 14px; }
 .conv-create-btn {
   margin: 10px;
+}
+.conv-danger-btn {
+  background: #d64545;
+}
+.conv-danger-btn:hover {
+  background: #c73c3c;
+}
+.conv-danger-btn:disabled {
+  opacity: 0.65;
 }
 
 @media (max-width: 980px) {
