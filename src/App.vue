@@ -219,6 +219,13 @@ const normalizeStoragePublicUrl = (url) => {
   return u
 }
 
+
+const pickUserAvatar = (user) => {
+  const custom = normalizeStoragePublicUrl(String(user?.image_path || '').trim())
+  if (custom) return custom
+  return normalizeStoragePublicUrl(String(user?.avatar_url || '').trim())
+}
+
 const userTitle = (u) => {
   if (!u) return 'Пользователь'
   const fn = String(u.first_name || '').trim()
@@ -291,7 +298,7 @@ export default {
 
     const menuOpen = ref(false)
 
-    const headerAvatarUrl = computed(() => normalizeStoragePublicUrl(profile.value?.image_path || ''))
+    const headerAvatarUrl = computed(() => pickUserAvatar(profile.value))
     const showHeaderAvatar = ref(false)
 
     const badgeText = computed(() => {
@@ -429,7 +436,7 @@ export default {
         return {
           ...u,
           title: userTitle(u),
-          avatar: normalizeStoragePublicUrl(u.image_path || ''),
+          avatar: pickUserAvatar(u),
           friendActionLabel: actionLabel,
           friendActionDisabled: state === 'friend',
           mutualFriendsCount: null
@@ -593,9 +600,11 @@ export default {
           ...form,
           description: String(form?.description || '').trim().slice(0, 200) || null
         }
-        const { error } = await updateMyPublicUser(payload)
+        const { data, error } = await updateMyPublicUser(payload)
         if (error) throw error
-        await loadSessionAndProfile()
+        if (data) {
+          profile.value = data
+        }
       } finally {
         saving.value = false
       }
@@ -618,8 +627,8 @@ export default {
       try {
         const { data, error } = await uploadAvatar(croppedFile)
         if (error) throw error
-        await updateMyPublicUser({ image_path: data?.publicUrl || data?.url || profile.value?.image_path })
-        await loadSessionAndProfile()
+        const { data: nextProfile } = await updateMyPublicUser({ image_path: data?.publicUrl || data?.url || profile.value?.image_path })
+        if (nextProfile) profile.value = nextProfile
       } finally {
         saving.value = false
         onAvatarCropClose()

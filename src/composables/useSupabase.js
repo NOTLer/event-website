@@ -56,7 +56,7 @@ const authProfileFromMetadata = (authUser) => {
     email: String(authUser?.email || '').trim(),
     first_name: firstName,
     last_name: lastName,
-    image_path: avatarUrl
+    avatar_url: avatarUrl
   }
 }
 
@@ -237,7 +237,9 @@ export const useSupabase = () => {
       if (authProfile.email && authProfile.email !== String(existing.email || '').trim()) patch.email = authProfile.email
       if (authProfile.first_name && authProfile.first_name !== String(existing.first_name || '').trim()) patch.first_name = authProfile.first_name
       if (authProfile.last_name && authProfile.last_name !== String(existing.last_name || '').trim()) patch.last_name = authProfile.last_name
-      if (authProfile.image_path && authProfile.image_path !== String(existing.image_path || '').trim()) patch.image_path = authProfile.image_path
+      if (!String(existing.image_path || '').trim() && authProfile.avatar_url && authProfile.avatar_url !== String(existing.avatar_url || '').trim()) {
+        patch.avatar_url = authProfile.avatar_url
+      }
 
       if (Object.keys(patch).length === 0) return { data: existing, error: null }
 
@@ -259,7 +261,8 @@ export const useSupabase = () => {
           email: authProfile.email,
           first_name: authProfile.first_name,
           last_name: authProfile.last_name,
-          image_path: authProfile.image_path || null,
+          image_path: null,
+          avatar_url: authProfile.avatar_url || null,
           It_business: false,
           interests: []
         }
