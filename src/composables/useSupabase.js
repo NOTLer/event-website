@@ -614,6 +614,26 @@ export const useSupabase = () => {
     const { error: participantsError } = await supabase.from('conversation_participants').insert(rows)
     if (participantsError) return { data: null, error: participantsError }
 
+    const { data: me } = await supabase
+      .from('users')
+      .select('first_name,last_name,username,email')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    const creatorName = (
+      `${String(me?.first_name || '').trim()} ${String(me?.last_name || '').trim()}`.trim() ||
+      String(me?.username || '').trim() ||
+      String(user?.user_metadata?.full_name || user?.user_metadata?.name || '').trim() ||
+      String(me?.email || user?.email || '').trim() ||
+      'Неизвестный пользователь'
+    )
+
+    const systemMessage = `Беседа создана пользователем ${creatorName}`
+    const { error: messageError } = await supabase.from('messages').insert([
+      { conversation_id: conversation.id, sender_id: user.id, body: systemMessage }
+    ])
+    if (messageError) return { data: null, error: messageError }
+
     return { data: conversation, error: null }
   }
 
