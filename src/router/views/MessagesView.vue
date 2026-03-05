@@ -343,18 +343,28 @@
       <template v-else>
         <div class="conv-settings-top">
           <div class="conv-avatar-box">
-            <img v-if="conversationAvatarPreview" :src="conversationAvatarPreview" alt="avatar" class="conv-avatar-preview" />
-            <div v-else class="conv-avatar-ph">👥</div>
-            <label v-if="isConversationOwner" class="conv-avatar-pick">
-              Выбрать аватар
-              <input type="file" accept="image/*" class="conv-avatar-input" @change="onConversationAvatarPicked" />
-            </label>
+            <button v-if="isConversationOwner" class="conv-avatar-trigger" type="button" @click="triggerConversationAvatarPick">
+              <img v-if="conversationAvatarPreview" :src="conversationAvatarPreview" alt="avatar" class="conv-avatar-preview" />
+              <div v-else class="conv-avatar-ph">👥</div>
+            </button>
+            <template v-else>
+              <img v-if="conversationAvatarPreview" :src="conversationAvatarPreview" alt="avatar" class="conv-avatar-preview" />
+              <div v-else class="conv-avatar-ph">👥</div>
+            </template>
+            <button v-if="isConversationOwner" type="button" class="conv-avatar-pick" @click="triggerConversationAvatarPick">Изменить аватар</button>
+            <input ref="conversationAvatarInput" type="file" accept="image/*" class="conv-avatar-input" @change="onConversationAvatarPicked" />
           </div>
 
           <div class="conv-title-block grow">
             <div class="conv-title-label">Название беседы</div>
             <input v-model="conversationTitleDraft" class="chat-input" type="text" :disabled="!isConversationOwner || conversationSaveLoading" />
           </div>
+        </div>
+
+        <div v-if="isConversationOwner" class="conv-actions-row">
+          <button class="chat-send conv-action-btn" type="button" @click="showAddParticipantsPanel = !showAddParticipantsPanel">Добавить участников</button>
+          <button class="chat-send conv-action-btn" type="button" @click="showRolePermissionsPanel = !showRolePermissionsPanel">Разрешения ролей</button>
+          <button class="chat-send conv-action-btn" type="button" @click="copyConversationJoinLink">Ссылка-приглашение</button>
         </div>
 
         <div class="conv-members-block">
@@ -371,19 +381,21 @@
                 </div>
               </div>
 
+              <div v-if="item.role === 'owner'" class="conv-role-owner">Создатель</div>
               <select
+                v-else
                 class="conv-role-select"
-                :disabled="!isConversationOwner || item.role === 'owner' || roleSaving"
+                :disabled="!isConversationOwner || roleSaving"
                 :value="item.role"
                 @change="updateParticipantRole(item, $event.target.value)"
               >
-                <option v-for="role in ROLE_OPTIONS" :key="`${item.user_id}-${role}`" :value="role">{{ roleTitle(role) }}</option>
+                <option v-for="role in EDITABLE_ROLE_OPTIONS" :key="`${item.user_id}-${role}`" :value="role">{{ roleTitle(role) }}</option>
               </select>
             </div>
           </div>
         </div>
 
-        <div v-if="isConversationOwner" class="conv-members-block">
+        <div v-if="isConversationOwner && showAddParticipantsPanel" class="conv-members-block">
           <div class="conv-title-label">Добавить участников</div>
           <input v-model="addParticipantsSearch" class="chat-input" type="text" placeholder="Поиск среди друзей" />
           <div class="conv-friends-list">
@@ -397,7 +409,7 @@
           <button class="chat-send" type="button" :disabled="selectedParticipantsToAdd.length === 0" @click="addSelectedParticipants">Добавить выбранных</button>
         </div>
 
-        <div class="conv-members-block">
+        <div v-if="isConversationOwner && showRolePermissionsPanel" class="conv-members-block">
           <div class="conv-title-label">Разрешения по ролям</div>
           <div class="role-grid" v-for="role in ROLE_OPTIONS" :key="`perm-${role}`">
             <div class="role-grid-title">{{ roleTitle(role) }}</div>
@@ -469,6 +481,7 @@ const FORWARD_SUFFIX = '__FORWARD__'
 const REACTION_OPTIONS = ['❤️', '🫡', '👌', '👍', '😡', '🥲', '😭']
 const CONVERSATION_THREAD_PREFIX = 'conversation:'
 const ROLE_OPTIONS = ['owner', 'admin', 'member']
+const EDITABLE_ROLE_OPTIONS = ['admin', 'member']
 const DEFAULT_ROLE_PERMISSIONS = {
   owner: {
     send_messages: true,
@@ -625,6 +638,7 @@ export default {
     const conversationTitleDraft = ref('')
     const conversationAvatarPreview = ref('')
     const conversationAvatarFile = ref(null)
+    const conversationAvatarInput = ref(null)
     const conversationAvatarCropOpen = ref(false)
     const pendingConversationAvatarFile = ref(null)
     const rolePermissions = ref({})
@@ -633,6 +647,8 @@ export default {
     const conversationActionLoading = ref(false)
     const addParticipantsSearch = ref('')
     const selectedParticipantsToAdd = ref([])
+    const showAddParticipantsPanel = ref(false)
+    const showRolePermissionsPanel = ref(false)
 
     const peer = ref(null)
     const messages = ref([])
@@ -812,12 +828,24 @@ export default {
       return base.filter((f) => String(f.title || '').toLowerCase().includes(q))
     })
 
+    const triggerConversationAvatarPick = () => {
+      if (!isConversationOwner.value) return
+      conversationAvatarInput.value?.click?.()
+    }
+
     const onConversationAvatarPicked = (event) => {
       const file = event?.target?.files?.[0]
       if (!file) return
       pendingConversationAvatarFile.value = file
       conversationAvatarCropOpen.value = true
       try { event.target.value = '' } catch {}
+    }
+
+    const copyConversationJoinLink = async () => {
+      if (!selectedConversationId.value) return
+      const href = `${window.location.origin}/messages?join=${encodeURIComponent(selectedConversationId.value)}`
+      const ok = await copyText(href)
+      alert(ok ? 'Ссылка-приглашение скопирована' : href)
     }
 
     const onConversationAvatarCropped = (file) => {
@@ -906,6 +934,8 @@ export default {
       conversationParticipantsSearch.value = ''
       addParticipantsSearch.value = ''
       selectedParticipantsToAdd.value = []
+      showAddParticipantsPanel.value = false
+      showRolePermissionsPanel.value = false
       try {
         const currentTitle = String(peer.value?.title || threads.value.find((t) => t.otherUserId === selectedOtherId.value)?.title || 'Беседа').trim()
         conversationTitleDraft.value = currentTitle
@@ -938,6 +968,8 @@ export default {
       conversationSettingsOpen.value = false
       conversationAvatarCropOpen.value = false
       pendingConversationAvatarFile.value = null
+      showAddParticipantsPanel.value = false
+      showRolePermissionsPanel.value = false
     }
 
     const addSelectedParticipants = async () => {
@@ -2227,10 +2259,31 @@ export default {
       peerTyping.value = false
     }
 
+    const tryJoinConversationByLink = async () => {
+      const joinId = String(route.query.join || '').trim()
+      if (!joinId || !myId.value) return
+      try {
+        const { data: participants, error: participantsError } = await getConversationParticipants(joinId)
+        if (participantsError) throw participantsError
+        const exists = (participants || []).some((p) => String(p.user_id) === String(myId.value))
+        if (!exists) {
+          const { error } = await addParticipantsToConversation(joinId, [myId.value])
+          if (error) throw error
+        }
+
+        const threadId = `${CONVERSATION_THREAD_PREFIX}${joinId}`
+        router.replace({ name: 'messages', query: { with: threadId } })
+      } catch (e) {
+        alert(String(e?.message || 'Не удалось присоединиться к беседе по ссылке'))
+      }
+    }
+
     onMounted(async () => {
       const qWith = String(route.query.with || '').trim()
       if (qWith) selectedOtherId.value = qWith
 
+      await reload()
+      await tryJoinConversationByLink()
       await reload()
       await setupRealtime()
       await setupTypingRealtime()
@@ -2339,6 +2392,16 @@ export default {
     }
 
     watch(
+      () => route.query.join,
+      async (val) => {
+        const joinId = String(val || '').trim()
+        if (!joinId || !myId.value) return
+        await tryJoinConversationByLink()
+        await reload()
+      }
+    )
+
+    watch(
       () => route.query.with,
       async (val) => {
         const nextId = String(val || '').trim()
@@ -2431,13 +2494,17 @@ export default {
       conversationParticipantsFiltered,
       conversationTitleDraft,
       conversationAvatarPreview,
+      conversationAvatarInput,
       conversationAvatarCropOpen,
       pendingConversationAvatarFile,
       rolePermissions,
       ROLE_OPTIONS,
+      EDITABLE_ROLE_OPTIONS,
       isConversationOwner,
       addParticipantsSearch,
       selectedParticipantsToAdd,
+      showAddParticipantsPanel,
+      showRolePermissionsPanel,
       friendsForAddFiltered,
       roleSaving,
       conversationSaveLoading,
@@ -2468,10 +2535,12 @@ export default {
       createConversationSubmit,
       openConversationSettings,
       closeConversationSettings,
+      triggerConversationAvatarPick,
       onConversationAvatarPicked,
       onConversationAvatarCropped,
       updateParticipantRole,
       addSelectedParticipants,
+      copyConversationJoinLink,
       roleTitle,
       permissionLabel,
       toggleRolePermission,
@@ -3392,7 +3461,8 @@ export default {
 
 
 .conv-settings-card {
-  max-width: 760px;
+  width: min(920px, 100%);
+  max-height: min(90vh, 860px);
 }
 
 .conv-settings-top {
@@ -3428,6 +3498,37 @@ export default {
 }
 
 .conv-avatar-input { display: none; }
+
+.conv-avatar-trigger {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.conv-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.conv-action-btn {
+  margin: 0;
+  width: auto;
+  padding: 8px 12px;
+}
+
+.conv-role-owner {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.tg-mount :deep(iframe.bis_skin_checked) {
+  border-radius: 12px;
+}
+
 .grow { flex: 1; }
 .conv-members-block { margin-top: 12px; }
 .conv-members-list { max-height: 220px; overflow: auto; margin-top: 8px; }
