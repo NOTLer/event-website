@@ -118,7 +118,6 @@
                 :class="{ mine: m.sender_id === myId, their: m.sender_id !== myId, system: m._kind === 'system_event', 'menu-open': messageMenuId === String(m.id) }"
               >
                 <div v-if="m._kind !== 'system_event'" class="msg-side">
-                  <div v-if="showSenderName(m, messages, msgIndex)" class="msg-sender-name">{{ senderTitle(m.sender_id) }}</div>
                   <div v-if="showAvatarForMessage(m, messages, msgIndex)" class="msg-avatar-wrap">
                     <img v-if="senderAvatar(m.sender_id)" :src="senderAvatar(m.sender_id)" class="msg-avatar" alt="avatar" />
                     <div v-else class="msg-avatar-ph">👤</div>
@@ -140,6 +139,7 @@
                   @click.stop
                   @contextmenu.prevent.stop="openMessageMenuContext($event, m.id)"
                 >
+                  <div v-if="showSenderName(m, messages, msgIndex)" class="msg-sender-name msg-sender-name-in-bubble">{{ senderTitle(m.sender_id) }}</div>
 
                   <div v-if="messageMenuId === String(m.id)" class="msg-menu" @click.stop>
                     <div class="msg-menu-stickers">
@@ -3218,13 +3218,16 @@ export default {
 }
 
 .msg-sender-name {
-  width: max-content;
-  max-width: 220px;
-  margin-bottom: 4px;
-  transform: translateX(58px);
   font-size: 12px;
   font-weight: 800;
-  color: #55607a;
+  line-height: 1.2;
+}
+
+.msg-sender-name-in-bubble {
+  margin-bottom: 6px;
+  color: #6e0f1b;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.34);
 }
 
 .msg-avatar-wrap,
