@@ -100,7 +100,7 @@
           </div>
         </div>
 
-        <div ref="chatBodyRef" class="chat-body" @scroll.passive="onChatScroll" @click="closeMessageMenu">
+        <div ref="chatBodyRef" class="chat-body" @scroll.passive="onChatScroll" @click="closeMessageMenu(); closeAttachMenu()">
           <div v-if="convLoading" class="chat-skel">
             <div class="chat-skel-bubble" v-for="i in 8" :key="i"></div>
           </div>
@@ -163,7 +163,33 @@
                     <div class="msg-reply-text">{{ parseBody(m.body).reply.text }}</div>
                   </div>
 
-                  <div class="msg-text">{{ parseBody(m.body).text }}</div>
+                  <div v-if="parseBody(m.body).text" class="msg-text">{{ parseBody(m.body).text }}</div>
+
+                  <div v-if="parseBody(m.body).attachment" class="msg-attachment">
+                    <div class="msg-attachment-title">📎 {{ parseBody(m.body).attachment.name || 'Вложение' }}</div>
+
+                    <img
+                      v-if="parseBody(m.body).attachment.kind === 'media' && parseBody(m.body).attachment.type.startsWith('image/')"
+                      :src="parseBody(m.body).attachment.dataUrl"
+                      class="msg-attachment-image"
+                      :alt="parseBody(m.body).attachment.name || 'Фото'"
+                    />
+
+                    <video
+                      v-else-if="parseBody(m.body).attachment.kind === 'media' && parseBody(m.body).attachment.type.startsWith('video/')"
+                      class="msg-attachment-video"
+                      controls
+                      :src="parseBody(m.body).attachment.dataUrl"
+                    ></video>
+
+                    <a
+                      class="msg-attachment-link"
+                      :href="parseBody(m.body).attachment.dataUrl"
+                      :download="parseBody(m.body).attachment.name || 'file'"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >Скачать файл</a>
+                  </div>
 
                   <div v-if="parseBody(m.body).forward" class="msg-forward">
                     <div class="msg-forward-top">
@@ -238,6 +264,18 @@
           </div>
 
           <div class="chat-input-row">
+            <div class="attach-wrap">
+              <button class="attach-btn" type="button" @click="toggleAttachMenu" :disabled="sending" aria-label="Прикрепить">📎</button>
+
+              <div v-if="attachMenuOpen" class="attach-menu" @click.stop>
+                <button class="attach-menu-item" type="button" @click="triggerAttachmentPick('file')">📄 Файл</button>
+                <button class="attach-menu-item" type="button" @click="triggerAttachmentPick('media')">🖼️ Фото/видео</button>
+              </div>
+
+              <input ref="attachmentFileInputRef" class="attach-input-hidden" type="file" @change="onAttachmentPicked($event, 'file')" />
+              <input ref="attachmentMediaInputRef" class="attach-input-hidden" type="file" accept="image/*,video/*" @change="onAttachmentPicked($event, 'media')" />
+            </div>
+
             <input
               ref="chatInputRef"
               v-model="draft"
@@ -249,7 +287,12 @@
               @keydown.enter.prevent="send"
               :disabled="sending"
             />
-            <button class="chat-send" type="button" @click="send" :disabled="sending || (!draft.trim() && !forwardTo)">Отправить</button>
+            <button class="chat-send" type="button" @click="send" :disabled="sending || (!draft.trim() && !forwardTo && !pendingAttachment)">Отправить</button>
+          </div>
+
+          <div v-if="pendingAttachment" class="attachment-pending">
+            <div class="attachment-pending-name">📎 {{ pendingAttachment.name }}</div>
+            <button class="attachment-pending-remove" type="button" @click="clearPendingAttachment">✕</button>
           </div>
         </div>
       </div>
@@ -478,6 +521,8 @@ const REPLY_PREFIX = '__REPLY__'
 const REPLY_SUFFIX = '__REPLY__'
 const FORWARD_PREFIX = '__FORWARD__'
 const FORWARD_SUFFIX = '__FORWARD__'
+const ATTACH_PREFIX = '__ATTACH__'
+const ATTACH_SUFFIX = '__ATTACH__'
 const REACTION_OPTIONS = ['❤️', '🫡', '👌', '👍', '😡', '🥲', '😭']
 const CONVERSATION_THREAD_PREFIX = 'conversation:'
 const ROLE_OPTIONS = ['owner', 'admin', 'member']
@@ -520,7 +565,19 @@ const safeJsonParse = (s) => {
   try { return JSON.parse(s) } catch { return null }
 }
 
-const buildBodyWithMeta = ({ replyTo, forwardTo, text }) => {
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+      reader.readAsDataURL(file)
+    } catch (e) {
+      reject(e)
+    }
+  })
+
+const buildBodyWithMeta = ({ replyTo, forwardTo, attachment, text }) => {
   let body = String(text || '')
 
   if (forwardTo) {
@@ -541,6 +598,16 @@ const buildBodyWithMeta = ({ replyTo, forwardTo, text }) => {
     body = `${REPLY_PREFIX}${JSON.stringify(meta)}${REPLY_SUFFIX}${body}`
   }
 
+  if (attachment?.dataUrl) {
+    const meta = {
+      kind: attachment.kind === 'media' ? 'media' : 'file',
+      name: String(attachment.name || 'Вложение'),
+      type: String(attachment.type || 'application/octet-stream'),
+      dataUrl: String(attachment.dataUrl || '')
+    }
+    body = `${ATTACH_PREFIX}${JSON.stringify(meta)}${ATTACH_SUFFIX}${body}`
+  }
+
   return body
 }
 
@@ -549,6 +616,7 @@ const parseBody = (body) => {
   let cursor = raw
   let reply = null
   let forward = null
+  let attachment = null
 
   if (cursor.startsWith(REPLY_PREFIX)) {
     const end = cursor.indexOf(REPLY_SUFFIX, REPLY_PREFIX.length)
@@ -582,7 +650,24 @@ const parseBody = (body) => {
     }
   }
 
-  return { reply, forward, text: cursor }
+  if (cursor.startsWith(ATTACH_PREFIX)) {
+    const end = cursor.indexOf(ATTACH_SUFFIX, ATTACH_PREFIX.length)
+    if (end !== -1) {
+      const jsonPart = cursor.slice(ATTACH_PREFIX.length, end)
+      const meta = safeJsonParse(jsonPart)
+      if (meta && typeof meta === 'object' && meta.dataUrl) {
+        attachment = {
+          kind: String(meta.kind || 'file'),
+          name: String(meta.name || 'Вложение'),
+          type: String(meta.type || 'application/octet-stream'),
+          dataUrl: String(meta.dataUrl || '')
+        }
+      }
+      cursor = cursor.slice(end + ATTACH_SUFFIX.length)
+    }
+  }
+
+  return { reply, forward, attachment, text: cursor }
 }
 
 export default {
@@ -655,6 +740,10 @@ export default {
     const reactionsByMessage = ref({})
     const messageMenuId = ref('')
     const draft = ref('')
+    const attachMenuOpen = ref(false)
+    const pendingAttachment = ref(null)
+    const attachmentFileInputRef = ref(null)
+    const attachmentMediaInputRef = ref(null)
     const peerOnline = ref(false)
     const peerLastSeenAt = ref('')
 
@@ -759,7 +848,9 @@ export default {
     const threadPreview = (body) => {
       const p = parseBody(body)
       const t = String(p.text || '').trim()
-      return t || (p.reply ? 'Ответ' : '')
+      if (t) return t
+      if (p.attachment) return p.attachment.kind === 'media' ? '📎 Фото/видео' : '📎 Файл'
+      return p.reply ? 'Ответ' : ''
     }
 
     const selectedConversationId = computed(() => conversationIdFromThreadId(selectedOtherId.value))
@@ -1262,6 +1353,43 @@ export default {
 
     const closeMessageMenu = () => {
       messageMenuId.value = ''
+    }
+
+    const closeAttachMenu = () => {
+      attachMenuOpen.value = false
+    }
+
+    const toggleAttachMenu = () => {
+      attachMenuOpen.value = !attachMenuOpen.value
+      if (attachMenuOpen.value) closeMessageMenu()
+    }
+
+    const clearPendingAttachment = () => {
+      pendingAttachment.value = null
+    }
+
+    const triggerAttachmentPick = (mode) => {
+      closeAttachMenu()
+      if (mode === 'media') attachmentMediaInputRef.value?.click?.()
+      else attachmentFileInputRef.value?.click?.()
+    }
+
+    const onAttachmentPicked = async (event, kind = 'file') => {
+      const file = event?.target?.files?.[0]
+      try { event.target.value = '' } catch {}
+      if (!file) return
+
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        pendingAttachment.value = {
+          kind: kind === 'media' ? 'media' : 'file',
+          name: String(file.name || 'Вложение'),
+          type: String(file.type || 'application/octet-stream'),
+          dataUrl
+        }
+      } catch (e) {
+        alert('Не удалось добавить файл')
+      }
     }
 
     const openMessageMenuContext = (event, messageId) => {
@@ -1795,6 +1923,8 @@ export default {
 
       replyTo.value = null
       forwardTo.value = null
+      pendingAttachment.value = null
+      closeAttachMenu()
       peerTyping.value = false
       peerLastSeenAt.value = ''
       peerOnline.value = false
@@ -1944,14 +2074,19 @@ export default {
     const send = async () => {
       const otherId = selectedOtherId.value
       const text = String(draft.value || '').trim()
-      if (!otherId || (!text && !forwardTo.value)) return
+      if (!otherId || (!text && !forwardTo.value && !pendingAttachment.value)) return
       const conversationId = conversationIdFromThreadId(otherId)
 
       sending.value = true
       try {
         await stopTyping()
 
-        const finalBody = buildBodyWithMeta({ replyTo: replyTo.value, forwardTo: forwardTo.value, text })
+        const finalBody = buildBodyWithMeta({
+          replyTo: replyTo.value,
+          forwardTo: forwardTo.value,
+          attachment: pendingAttachment.value,
+          text
+        })
         let data = null
         let error = null
         if (conversationId) {
@@ -1972,6 +2107,8 @@ export default {
         draft.value = ''
         replyTo.value = null
         forwardTo.value = null
+        pendingAttachment.value = null
+        closeAttachMenu()
 
         if (data) {
           const appended = appendMessageUnique(data)
@@ -2371,6 +2508,8 @@ export default {
       showScrollDown.value = false
       replyTo.value = null
       forwardTo.value = null
+      pendingAttachment.value = null
+      closeAttachMenu()
       peerTyping.value = false
       showPeerProfile.value = false
       conversationSettingsOpen.value = false
@@ -2419,6 +2558,8 @@ export default {
           showScrollDown.value = false
           replyTo.value = null
           forwardTo.value = null
+          pendingAttachment.value = null
+          closeAttachMenu()
           peerTyping.value = false
           showPeerProfile.value = false
           conversationSettingsOpen.value = false
@@ -2430,6 +2571,8 @@ export default {
         selectedOtherId.value = nextId
         replyTo.value = null
         forwardTo.value = null
+        pendingAttachment.value = null
+        closeAttachMenu()
         peerTyping.value = false
         showPeerProfile.value = false
         peerLastSeenAt.value = ''
@@ -2571,7 +2714,17 @@ export default {
       // typing
       peerTyping,
       onDraftInput,
-      stopTyping
+      stopTyping,
+
+      attachMenuOpen,
+      toggleAttachMenu,
+      triggerAttachmentPick,
+      onAttachmentPicked,
+      attachmentFileInputRef,
+      attachmentMediaInputRef,
+      pendingAttachment,
+      clearPendingAttachment,
+      closeAttachMenu
     }
   }
 }
@@ -3136,6 +3289,36 @@ export default {
   font-size: 14px;
 }
 
+.msg-attachment {
+  margin-top: 8px;
+  border: 1px solid #e9edf6;
+  background: #f8faff;
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.msg-attachment-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.msg-attachment-image,
+.msg-attachment-video {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  border-radius: 10px;
+  object-fit: cover;
+  margin-bottom: 6px;
+}
+
+.msg-attachment-link {
+  font-size: 12px;
+  color: #2a5bff;
+  text-decoration: none;
+}
+
 .msg-reactions {
   margin-top: 8px;
   display: flex;
@@ -3275,8 +3458,81 @@ export default {
 
 .chat-input-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
   gap: 10px;
+  align-items: center;
+}
+
+.attach-wrap {
+  position: relative;
+}
+
+.attach-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid #efefef;
+  background: #fff;
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 190px;
+  border: 1px solid #efefef;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  z-index: 6;
+}
+
+.attach-menu-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid #f3f3f3;
+  background: #fff;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.attach-menu-item:last-child {
+  border-bottom: none;
+}
+
+.attach-input-hidden {
+  display: none;
+}
+
+.attachment-pending {
+  border: 1px solid #efefef;
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #fafafa;
+}
+
+.attachment-pending-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-pending-remove {
+  border: 1px solid #efefef;
+  background: #fff;
+  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
 }
 
 .chat-input {
